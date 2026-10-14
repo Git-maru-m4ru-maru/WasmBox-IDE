@@ -14,6 +14,8 @@ on:
       - "tools/cpio.ts"
       - "tools/make-initrd.ts"
       - "tools/alpine-smoke.mjs"
+      - "tools/persist-smoke.mjs"
+      - "tools/smoke-lib.mjs"
       - "test/initrd.test.ts"
       - "package.json"
       - "package-lock.json"
@@ -31,6 +33,8 @@ on:
       - "tools/cpio.ts"
       - "tools/make-initrd.ts"
       - "tools/alpine-smoke.mjs"
+      - "tools/persist-smoke.mjs"
+      - "tools/smoke-lib.mjs"
       - "test/initrd.test.ts"
       - "package.json"
       - "package-lock.json"
@@ -80,3 +84,5 @@ jobs:
           cat /tmp/wasmbox-poc-server.log
           exit 1
       - run: node tools/alpine-smoke.mjs
+      - name: Persistence smoke test (reopen browser, flush, reload)
+        run: node tools/persist-smoke.mjs
