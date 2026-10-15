@@ -2,10 +2,12 @@
 
 v86 のディスク（hda）に、WasmBox の `BlockStore`（IndexedDB に永続化）を接続して Linux を起動する。
 
-> **確認状況**
+> **確認状況**（2026-10-15、GitHub Actions のヘッドレス Chromium）
 > - ✅ v86 実ブラウザ上で、BlockStore の書き込み・flush・再読み込み後の読み戻しを確認済み。
-> - ✅ Alpine 3.21 の ext4 から Node.js 22 と Python 3.12 を実行する経路を確認済み。
-> - ⚠️ 外付け initrd による Alpine 直接ルート起動は、GitHub Actions の実ブラウザテストで検証中。
+> - ✅ Alpine 3.21 の ext4 から Node.js 22 と Python 3.12 を実行できる。
+> - ✅ 外付け initrd による Alpine 直接ルート起動（`switch_root`）を、3 回連続で確認済み。
+> - ✅ ブラウザを閉じて開き直しても、ゲストが書いたファイルが残る（`tools/persist-smoke.mjs`）。
+> - ⚠️ ゲストの `sync` は保存を保証しない。直後に閉じると失われうる（ARCHITECTURE.md 4.3）。
 
 ## 0. まず自己診断（v86 不要）
 
@@ -100,10 +102,12 @@ dd if=/dev/sda bs=512 skip=10 count=1 2>/dev/null | head -c 14
 
 ## 既知の制約
 
-- **ゲストの `sync` / fsync は、IndexedDB への flush に直結していません。** v86 のディスクのインターフェースに、
-  それを伝える手段が見当たらないためです（`get` / `set` のみ。IDE デバイス側の挙動は未確認）。
-  代わりに、定期 flush（この PoC では 1 秒）と、タブを隠す / 閉じるときの flush に頼っています。
-  電源断に相当する「タブの強制終了」では、直近 1 秒ぶんが失われる可能性があります。
+- **ゲストの `sync` / fsync は、IndexedDB への保存を保証しません。** v86 の IDE が FLUSH CACHE をディスクに伝えず、
+  書き込みの IRQ も `set` の前に上げるためです（ARCHITECTURE.md 4.3）。実測でも、`sync` の直後に閉じると失われました。
+  代わりに、アイドル flush（最後の書き込みから 150 ms。`alpine.html`）、定期 flush（1 秒）、タブを隠す / 閉じるときの flush に頼っています。
+  失われうるのは、最後の書き込みから約 150 ms ＋ 保存時間のあいだに閉じた場合です。
+  保存前に閉じても、次の起動で ext4 がジャーナルから回復することは実測で確認しました。
+  （`index.html` の PoC はアイドル flush を使わず、定期 flush（1 秒）とタブを隠す / 閉じるときの flush だけです。）
 - v86 の `save_state` / `restore_state` は未対応です。ディスクの実体は IndexedDB にあり、スナップショットに含まれないため、
   RAM だけを古い状態に戻すとファイルシステムが壊れえます（M6 で扱う）。
 - ディスクは、まっさらな 64 MiB（全チャンクがゼロ埋め）です。実イメージは `tools/chunk-image.ts` で分割して使います。

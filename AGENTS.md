@@ -6,7 +6,7 @@ AI コーディングエージェント（Codex、Copilot、Claude など）と�
 
 WasmBox は、ブラウザ内で Linux（エミュレータ上）を動かし、コマンドを実行できる仮想OS。
 **設計と決定事項は [ARCHITECTURE.md](./ARCHITECTURE.md)。作業の前に必ず読むこと。**
-今は M1（Storage層）が完了し、M2（v86 との接続 PoC）の段階。
+今どこまで進んでいるかは、ARCHITECTURE.md の 9 章（マイルストーン）と、README.md の「検証状況」を見ること。
 
 ## 変更のたびに実行するもの
 

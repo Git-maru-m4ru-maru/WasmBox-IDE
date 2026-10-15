@@ -16,7 +16,8 @@ export interface AutoFlushOptions {
  *
  * 注意:
  * - ページ離脱中の IndexedDB 書き込みは完了が保証されない（ベストエフォート）。
- *   本当に失いたくない書き込みは、ゲストの fsync → flush() の完了待ちで守ること。
+ *   本当に失いたくない書き込みは、flush() の完了を待って守ること。
+ *   ※ v86 では、ゲストの fsync が flush() に届かない（ARCHITECTURE.md 4.3）。代わりにアイドル flush（flushIdleMs）で縮めている。
  * - Worker 内では pagehide / visibilitychange が届かない。メインスレッド側でこの関数を使い、
  *   Worker へ「flush せよ」というメッセージを送る形にすること。
  */

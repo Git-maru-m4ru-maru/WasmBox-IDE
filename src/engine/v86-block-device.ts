@@ -15,8 +15,11 @@ import type { BlockStore } from "../storage/types.ts";
  *   返せなければ undefined にする（v86 はディスクサイズからジオメトリを推定する）。
  * - byteLength、get_buffer、get_state / set_state
  *
- * ※ IDE の残りの実装（FLUSH CACHE の扱いなど）は未確認。v86 を更新したら、ide.js が this.buffer に
- *   呼ぶメソッドを grep し直すこと（例: grep -o "buffer\\.[a-z_]*\\(" src/ide.js | sort | uniq -c）。
+ * ※ FLUSH CACHE（0xE7 / 0xEA）は、v86 の ide.js では status を立てて IRQ を上げるだけで、ディスクのオブジェクトを呼ばない
+ *   （2026-10-15 に確認。要約ツール経由なので 🔬 直接 grep して再確認すること）。PIO の書き込み（do_write）も、
+ *   buffer.set を呼ぶ前に IRQ を上げ、set の完了コールバックは空。実測でも、ゲストの sync の直後にブラウザを閉じると失われた。
+ *   v86 を更新したら、ide.js が this.buffer に呼ぶメソッドを grep し直すこと
+ *   （例: grep -o "buffer\\.[a-z_]*\\(" src/ide.js | sort | uniq -c）。
  */
 export interface V86Loadable {
   byteLength: number;

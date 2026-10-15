@@ -1,43 +1,73 @@
-# Alpine root filesystem image
+# Alpine ルートFSイメージ
 
-32-bit x86 Alpine with Node.js and Python is packaged into an ext4 image, split into content-addressed chunks, and served to the v86 BlockStore.
+32bit x86 の Alpine（Node.js・Python 入り）を ext4 のイメージにまとめ、内容アドレス方式のチャンクに分割して、v86 の BlockStore から配信する。
 
-The external initrd now provides the `rdinit=/wasmbox-init` path. The actual direct-root handoff is being tested in v86 by GitHub Actions; Node.js and Python execution were already verified using the earlier chroot path.
+確認状況（2026-10-15、GitHub Actions の実ブラウザ。`tools/alpine-smoke.mjs`）:
 
-## Build
+- ✅ 外付け initrd による直接ルート起動（`rdinit=/wasmbox-init` → `switch_root`）を 3 回連続で確認。`/proc/mounts` で `/dev/sda / ext4` になる。
+- ✅ Alpine 3.21 の上で Node.js v22.23.2 と Python 3.12.15 が動く。
 
-Requirements: Docker with BuildKit and Node.js 22.18 or newer.
+## ビルド
+
+必要なもの: BuildKit が使える Docker と、Node.js 22.18 以上。
 
 ```sh
 bash image/build.sh
 ```
 
-Optional environment variables:
+環境変数（任意）:
 
-| Variable | Default | Purpose |
+| 変数 | 既定値 | 内容 |
 |---|---|---|
-| ALPINE_VERSION | 3.21 | Alpine release |
-| PACKAGES | nodejs python3 | Packages installed into the guest image |
-| IMAGE_SIZE_MIB | 512 | Virtual disk size |
-| CHUNK_SIZE | 262144 | Chunk size in bytes |
+| ALPINE_VERSION | 3.21 | Alpine のリリース |
+| PACKAGES | nodejs python3 | ゲストのイメージに入れるパッケージ |
+| IMAGE_SIZE_MIB | 512 | 仮想ディスクの大きさ |
+| CHUNK_SIZE | 262144 | チャンクのバイト数 |
 
-The build creates `image/out/rootfs.ext4` and `poc/image/manifest.json` plus `poc/image/chunks/`. It checks the filesystem with e2fsck after restoring the image from the chunk store.
+ビルドすると `image/out/rootfs.ext4` と、`poc/image/manifest.json`・`poc/image/chunks/`・`poc/image/initrd.cpio` ができる。
+チャンクから復元したイメージを `e2fsck` で検査するところまで行う。
 
-## Run the browser PoC
+## ブラウザで動かす
 
-1. Follow `poc/README.md` and place the v86 assets and disk-enabled kernel in `poc/vendor/`.
-2. Run `npm run poc`.
-3. Open http://127.0.0.1:8080/alpine.html.
+1. `poc/README.md` に従って、v86 一式とディスク対応カーネルを `poc/vendor/` に置く。
+2. `npm run poc` を実行する。
+3. http://127.0.0.1:8080/alpine.html を開く。
 
-Parameters: `?memory=512`, `?root=/dev/hda`, `?kernel=...`, `?cmdline=...`, and `?image=image`.
+URL パラメータ:
 
-## Current kernel caveat
+| パラメータ | 内容 |
+|---|---|
+| `?memory=512` | ゲストの RAM（MiB。64〜2048。既定 256） |
+| `?root=/dev/hda` | ルートのデバイス名（既定 `/dev/sda`） |
+| `?kernel=...` / `?cmdline=...` | カーネルのパス / カーネルのコマンドライン |
+| `?image=image` | イメージのディレクトリ |
+| `?initrd=none` / `?initrd=...` | 外付け initrd を使わない / 明示的に指定する |
+| `?flushidle=150` / `?flushinterval=1000` | アイドル flush / 定期 flush の時間（ms）。検証用 |
+| `?autoflush=off` | ページ離脱時の flush を外す。検証用 |
+| `?smoke=1` | 自動テストが使うフックを `window` に公開する。検証用 |
 
-The `buildroot-bzimage68_v86.bin` kernel starts its built-in Buildroot environment (prompt `~% `) and tries to mount the v86 host 9p filesystem at `/mnt`. That initramfs has an init of its own, so the supplied `root=` parameter alone does not make Alpine become PID 1. The test mounts the ext4 disk at `/mnt/alpine`, mounts proc/sys/dev into it, then runs commands using `chroot`. This verifies that the Alpine userland and Node.js binary execute on v86's emulated x86 CPU, but not that a direct root switch works.
+## 直接ルート起動のしくみ（外付け initrd）
 
-## Guest checks
+使っているカーネル（`buildroot-bzimage68_v86.bin`）は、内蔵の initramfs の `/init` が Buildroot 環境（プロンプト `~% `）を起動し、
+v86 のホスト 9p を `/mnt` にマウントしようとする。そのため、`root=` を渡すだけでは Alpine が PID 1 にならない。
 
-The automated smoke test runs the following equivalents in the Alpine root:
+そこで `tools/make-initrd.ts` が、`/wasmbox-init` と最小のデバイスノードだけを入れた、無圧縮の `newc` 形式の cpio を作る。
+`poc/alpine.ts` はそれを v86 に渡し、コマンドラインに `rdinit=/wasmbox-init` を足す。
+
+`/wasmbox-init`（`image/initrd/wasmbox-init`）は、`root=` と `rootfstype=` を読み、デバイスが現れるまで最大 15 秒待ち、ext4 をマウントし、
+`/sbin/init` があるのを確かめて `switch_root /newroot /sbin/init` する。失敗したら `chroot` で代用し、それも駄目ならレスキュー用のシェルを残す。
+
+切り替える前に `[wasmbox-init] ルート: /dev/sda（ext4）` と表示する。ただし、Alpine がコンソールを初期化するときにシリアルの
+テキストエリアが描き直されることがあり、この行が残っていないことだけでは、initrd の失敗とは言えない。
+起動後の確実な確認方法は次のとおりで、`/dev/sda / ext4 ...` と表示されればよい。
+
+```sh
+grep -E '^(/dev/(sd|hd)[a-z]+) / ext4 ' /proc/mounts
+```
+
+## ゲスト内の確認
+
+自動テスト（`tools/alpine-smoke.mjs`）は、Alpine のルートで次のコマンドを実行する。
 
 ```sh
 cat /etc/alpine-release
@@ -49,34 +79,25 @@ time node -e "console.log(1)"
 time python3 -c "print(1)"
 ```
 
-Record the time until the guest shell appears, the downloaded chunk count and MiB shown in the status line, the command timings, and the detected disk name.
+実測値（シェルが使えるまでの時間、コマンドの時間、メモリ）は ARCHITECTURE.md の 6・7 章に載せている。
+永続化の確認（`tools/persist-smoke.mjs`）は ARCHITECTURE.md の 4.3 を参照。
 
-## Troubleshooting
+## トラブルシュート
 
-| Symptom | Next check |
+| 症状 | 次に確認すること |
 |---|---|
-| Alpine ext4 won't mount | Try /dev/sda and /dev/hda; check /proc/partitions and dmesg |
-| `chroot` says not found | Check that /mnt/alpine/bin/sh exists and the ext4 mount succeeded |
-| Node reports Illegal instruction | Check /proc/cpuinfo; current guest advertises SSE2 but not SSE3 |
-| Process is killed | Increase RAM with `?memory=512` |
-| Status says the image belongs to another image | Reset the disk overlay before loading the new manifest |
+| Alpine の ext4 がマウントできない | `/dev/sda` と `/dev/hda` の両方を試す。`/proc/partitions` と `dmesg` を見る |
+| Buildroot のプロンプト `~% ` が出たまま、`[wasmbox-init]` の行がない | initrd の URL と、コマンドラインの `rdinit=` を確認する |
+| デバイスが見つからない | `/proc/partitions` を見る |
+| マウントに失敗する | `dmesg \| tail` と、ext4 の機能フラグを見る |
+| Node.js が `Illegal instruction` になる | `/proc/cpuinfo` を見る。今のゲストは SSE2 まで（SSE3 なし） |
+| プロセスが kill される | `?memory=512` で RAM を増やす |
+| 「別のイメージのものです」と出る | 新しい manifest を読み込む前に、ディスクの overlay を初期化する |
 
-## Design notes
+## 設計メモ
 
-- Packages are installed at image build time, not inside the guest.
-- ext4 is created with `metadata_csum`, `64bit`, and `orphan_file` disabled for compatibility with the older kernel. The journal remains enabled.
-- The default image is 512 MiB. Zero-filled chunks are not delivered, so unused disk space does not need to be downloaded.
-- The BlockStore writes are periodically flushed, but guest filesystem write ordering is not guaranteed to match flush boundaries.
-
-
-## Direct-root startup with external initrd
-
-The selected kernel contains a Buildroot initramfs, whose embedded `/init` starts Buildroot rather than using `root=` to switch to Alpine. `tools/make-initrd.ts` creates a small uncompressed `newc` cpio archive with `/wasmbox-init` and minimal device nodes. `poc/alpine.ts` passes it to v86 and adds `rdinit=/wasmbox-init`.
-
-The init script reads `root=` and `rootfstype=`, waits up to 15 seconds for the device, mounts ext4, checks `/sbin/init`, and calls `switch_root /newroot /sbin/init`. If that fails, it attempts `chroot` and leaves a rescue shell if necessary.
-
-The init script prints `[wasmbox-init] ルート: /dev/sda（ext4）` before switching. The serial textarea may be redrawn when Alpine initializes its console, so the earlier line is not always retained; its absence from the current textarea alone does not prove initrd failure. The definitive post-boot check is `grep -E '^(\/dev\/(sd|hd)[a-z]+) \/ ext4 ' /proc/mounts`, which should show `/dev/sda / ext4 ...`. The live smoke test checks this mount, runs Node.js and Python, records `free -m`, and repeats the browser boot three times.
-
-Use `?initrd=none` to disable the external initrd, `?initrd=...` to provide an explicit path, `?root=/dev/hda` for a different disk name, and `?memory=512` to increase guest RAM.
-
-Troubleshooting: if Buildroot's `~%` prompt appears without a `[wasmbox-init]` line, check the initrd URL and the `rdinit=` command-line parameter. If the device is missing, inspect `/proc/partitions`; if mounting fails, inspect `dmesg | tail` and the ext4 feature flags.
+- パッケージは、ゲストの中ではなく、イメージのビルド時に入れる。
+- ext4 は、古いカーネルとの互換のため `metadata_csum`・`64bit`・`orphan_file` を無効にして作る。ジャーナルは有効のまま。
+- 既定のイメージは 512 MiB。ゼロ埋めのチャンクは配信しないので、使っていない領域をダウンロードする必要はない。
+- BlockStore への書き込みは、定期・アイドル・しきい値で flush される。ただし、ゲストのファイルシステムの書き込み順序が flush の境目と一致する保証はない。
+  保存前にタブを閉じても、ext4 のジャーナルで回復して起動できることは実測で確認した（ARCHITECTURE.md 4.3）。
