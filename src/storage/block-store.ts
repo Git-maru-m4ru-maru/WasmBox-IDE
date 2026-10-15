@@ -35,6 +35,12 @@ export interface ChunkedBlockStoreOptions {
   memoryCacheBytes?: number;
   /** 定期 flush の間隔（ms）。0 以下で無効。既定 3000。 */
   flushIntervalMs?: number;
+  /**
+   * 最後の書き込みからこの時間（ms）、新しい書き込みが無ければ flush する。0 以下で無効（既定）。
+   * 定期 flush より早く保存できる。書き込みが続いている間は待つので、細かい書き込みを束ねる効果は保つ。
+   * v86 はゲストの sync を伝えてこないため、タブを突然閉じたときに失われる範囲を縮めるために使う。
+   */
+  flushIdleMs?: number;
   /** dirty 量がこれを超えたらバックグラウンドで flush する。既定 8 MiB。 */
   flushThresholdBytes?: number;
   /** dirty 量がこれを超えたら write() が flush 完了を待つ（バックプレッシャ）。既定 32 MiB。 */
@@ -83,6 +89,7 @@ export class ChunkedBlockStore implements BlockStore {
   readonly #overlay: Set<number>;
 
   readonly #flushIntervalMs: number;
+  readonly #flushIdleMs: number;
   readonly #flushThresholdBytes: number;
   readonly #maxDirtyBytes: number;
   readonly #readahead: number;
@@ -105,6 +112,7 @@ export class ChunkedBlockStore implements BlockStore {
   #writeChain: Promise<void> = Promise.resolve();
   #flushChain: Promise<void> = Promise.resolve();
   #timer: ReturnType<typeof setTimeout> | undefined;
+  #idleTimer: ReturnType<typeof setTimeout> | undefined;
   #lastReadChunk: number | undefined;
 
   #fetchActive = 0;
@@ -137,6 +145,7 @@ export class ChunkedBlockStore implements BlockStore {
     this.#overlay = overlay;
     this.#lru = new ByteLRU(options.memoryCacheBytes ?? 64 * MiB);
     this.#flushIntervalMs = options.flushIntervalMs ?? 3000;
+    this.#flushIdleMs = options.flushIdleMs ?? 0;
     this.#flushThresholdBytes = options.flushThresholdBytes ?? 8 * MiB;
     this.#maxDirtyBytes = options.maxDirtyBytes ?? 32 * MiB;
     this.#readahead = options.readaheadChunks ?? 2;
@@ -386,6 +395,7 @@ export class ChunkedBlockStore implements BlockStore {
 
     if (this.#dirtyBytes >= this.#flushThresholdBytes) this.#backgroundFlush();
     else this.#scheduleFlush();
+    this.#scheduleIdleFlush();
 
     if (this.#dirtyBytes + this.#flushingBytes >= this.#maxDirtyBytes) {
       await this.flush(); // バックプレッシャ: 溜まりすぎたら flush 完了まで待たせる
@@ -452,10 +462,23 @@ export class ChunkedBlockStore implements BlockStore {
     (this.#timer as unknown as { unref?: () => void }).unref?.();
   }
 
+  /** 書き込みのたびに呼ぶ。最後の書き込みから flushIdleMs 経ったら flush する（書き込みが続く間は延期される）。 */
+  #scheduleIdleFlush(): void {
+    if (this.#flushIdleMs <= 0 || this.#state === "closed") return;
+    if (this.#idleTimer !== undefined) clearTimeout(this.#idleTimer);
+    this.#idleTimer = setTimeout(() => {
+      this.#idleTimer = undefined;
+      if (this.#dirty.size > 0) this.#backgroundFlush();
+    }, this.#flushIdleMs);
+    (this.#idleTimer as unknown as { unref?: () => void }).unref?.();
+  }
+
   #backgroundFlush(): void {
     this.flush().catch((err) => {
       this.#onError(err);
-      this.#scheduleFlush(); // dirty は残っているので、次の周期で再試行する
+      // dirty は残っているので、次の周期（またはアイドル時間の経過後）に再試行する
+      this.#scheduleFlush();
+      this.#scheduleIdleFlush();
     });
   }
 
@@ -472,6 +495,10 @@ export class ChunkedBlockStore implements BlockStore {
     if (this.#timer !== undefined) {
       clearTimeout(this.#timer);
       this.#timer = undefined;
+    }
+    if (this.#idleTimer !== undefined) {
+      clearTimeout(this.#idleTimer);
+      this.#idleTimer = undefined;
     }
     try {
       await this.#writeChain;

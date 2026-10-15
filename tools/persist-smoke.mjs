@@ -1,7 +1,8 @@
 // M3: ディスクの永続化を、実ブラウザ + v86 + Alpine で確認する。
 //
 // 確認すること（✅ は失敗したらテストが落ちる、📝 は結果を記録するだけ）
-//   ✅ 定期 flush で保存されたファイルが、ブラウザを完全に閉じて開き直したあとも残っている
+//   ✅ アイドル flush（書き込みが 150ms 止まったら保存）だけで、ファイルが保存され、
+//      ブラウザを完全に閉じて開き直したあとも残っている（定期 flush は 60 秒に延ばして効かせない）
 //   ✅ 開き直したあとも、ext4 のルートで起動できる（保存前に閉じたあとのジャーナル回復を含む）
 //   ✅ 明示的に flush してからリロードしたファイルが残っている
 //   📝 ゲストの sync 直後（定期 flush の前）にページを閉じたとき、そのファイルが残るか
@@ -81,16 +82,29 @@ async function waitForDurable(session) {
 
 let session;
 try {
-  // ---- セッション1: 初回起動。定期 flush だけを頼りにする（pagehide の flush を外す）
+  // ---- セッション1: 初回起動。アイドル flush だけを頼りにする
+  //      pagehide の flush は外し、定期 flush は 60 秒に延ばす（= 保存されたなら、アイドル flush が働いた証拠）
   session = await openSession();
-  report.coldBoot = await boot(session, "&autoflush=off");
+  report.coldBoot = await boot(session, "&autoflush=off&flushinterval=60000&flushidle=150");
   const contentA = "A-" + token;
+  const contentE = "E-" + token;
   const contentB = "B-" + token;
   await writeFile(session, "a.txt", contentA);
   await waitForDurable(session);
 
+  // 書き込み → 保存済みになるまでの時間を測る。アイドル flush が無ければ、60 秒の定期 flush まで保存されない。
+  await writeFile(session, "e.txt", contentE);
+  const idleStartedAt = Date.now();
+  await session.page.waitForFunction(
+    () => (window.__wasmboxAlpineStore?.stats().pendingBytes ?? 1) === 0,
+    null,
+    { timeout: 5000, polling: 25 },
+  );
+  report.idleFlushLatencyMs = Date.now() - idleStartedAt;
+  await session.page.waitForTimeout(300); // 書き込みがストアに届く前に 0 を見ていた場合に備え、少し待つ
+
   await writeFile(session, "b.txt", contentB);
-  // ここでは待たずに閉じる。sync は済んでいるが、IndexedDB への保存は定期 flush に任されている
+  // ここでは待たずに閉じる。sync は済んでいるが、IndexedDB への保存は（アイドル flush が働く前に）間に合わない
   report.pendingBytesAtClose = (await session.page.evaluate(() => window.__wasmboxAlpineStore?.stats().pendingBytes)) ?? null;
   await session.context.close();
   session = undefined;
@@ -99,8 +113,9 @@ try {
   session = await openSession();
   report.warmBoot = await boot(session);
 
-  assert.equal(await readFile(session, "a.txt"), contentA, "定期 flush で保存したはずの a.txt が、開き直したあと残っていません");
-  report.aSurvivedClose = true;
+  assert.equal(await readFile(session, "a.txt"), contentA, "アイドル flush で保存したはずの a.txt が、開き直したあと残っていません");
+  assert.equal(await readFile(session, "e.txt"), contentE, "アイドル flush で保存したはずの e.txt が、開き直したあと残っていません");
+  report.aAndESurvivedClose = true;
   report.bSurvivedAbruptClose = (await readFile(session, "b.txt")) === contentB;
   const kernelLog = await session.guest.run("ext4 のカーネルログ", "dmesg | grep -iE 'ext4|jbd2|recover' | tail -n 8", { allowFailure: true, quiet: true });
   report.ext4Log = kernelLog.output.split(/\r?\n/).slice(-4);
