@@ -13,7 +13,9 @@
     "chunk-image": "node tools/chunk-image.ts",
     "poc:build": "esbuild poc/main.ts poc/selftest.ts poc/alpine.ts --bundle --format=esm --target=es2022 --outdir=poc/dist",
     "poc:serve": "node tools/serve.ts poc 8080",
-    "poc": "npm run poc:build && npm run poc:serve"
+    "poc": "npm run poc:build && npm run poc:serve",
+    "site:build": "node tools/build-site.ts && esbuild app/main.ts --bundle --format=esm --target=es2022 --outfile=site/app.js",
+    "site:serve": "node tools/serve.ts site 8080"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
