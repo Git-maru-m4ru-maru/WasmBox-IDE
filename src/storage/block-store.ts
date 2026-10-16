@@ -17,8 +17,14 @@ import type { BlockStore, ChunkSource, KVBackend, KVOp, Manifest } from "./types
 const MiB = 1024 * 1024;
 const META_KEY = "m:instance";
 const OVERLAY_PREFIX = "o:";
-const baseKey = (hash: string) => `h:${hash}`;
+const BASE_PREFIX = "h:";
+const baseKey = (hash: string) => `${BASE_PREFIX}${hash}`;
 const overlayKey = (index: number) => `${OVERLAY_PREFIX}${index}`;
+
+/** IndexedDB が容量不足で書き込みを断ったときのエラー（DOMException の name） */
+function isQuotaError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { name?: unknown }).name === "QuotaExceededError";
+}
 
 export interface ChunkedBlockStoreOptions {
   manifest: Manifest;
@@ -70,6 +76,8 @@ export interface StoreStats {
   /** 現在 flush 待ちのバイト数（flush 中のぶんを含む） */
   pendingBytes: number;
   overlayChunks: number;
+  /** 容量不足のとき、base キャッシュから捨てたチャンクの数（累計。overlay は捨てない） */
+  baseEvictions: number;
   lruBytes: number;
   lruChunks: number;
 }
@@ -107,6 +115,8 @@ export class ChunkedBlockStore implements BlockStore {
   /** チャンクごとの書き込み回数。遅れて届いた古い読み込み結果をキャッシュに入れないために使う。 */
   readonly #versions = new Map<number, number>();
   readonly #inflight = new Map<number, Promise<Uint8Array>>();
+  /** このセッションで読んだ base チャンクのハッシュ。容量不足で捨てるときは、これ以外を先に捨てる。 */
+  readonly #touchedBase = new Set<string>();
 
   #state: State = "open";
   #writeChain: Promise<void> = Promise.resolve();
@@ -121,6 +131,7 @@ export class ChunkedBlockStore implements BlockStore {
   readonly #stats = {
     memoryHits: 0,
     baseCacheHits: 0,
+    baseEvictions: 0,
     overlayReads: 0,
     networkFetches: 0,
     bytesFetched: 0,
@@ -280,6 +291,7 @@ export class ChunkedBlockStore implements BlockStore {
     const hash = this.#manifest.chunks[index];
     const length = chunkLength(this.#manifest, index);
     if (hash === null || hash === undefined) return new Uint8Array(length);
+    this.#touchedBase.add(hash);
 
     const cached = await this.#baseCache.get(baseKey(hash));
     if (cached && cached.byteLength === length) {
@@ -426,7 +438,7 @@ export class ChunkedBlockStore implements BlockStore {
     }
 
     try {
-      await this.#instance.batch(ops);
+      await this.#writeOverlay(ops);
     } catch (err) {
       // 失敗: スナップショットを dirty に戻す（flush 中に書かれた新しい内容があればそちらを優先）
       for (const [index, value] of snapshot) {
@@ -449,6 +461,44 @@ export class ChunkedBlockStore implements BlockStore {
     this.#flushingBytes = 0;
     this.#stats.flushes++;
     this.#stats.chunksFlushed += snapshot.size;
+  }
+
+  /**
+   * overlay を書き込む。容量不足（QuotaExceededError）で断られたら、再取得できる base キャッシュを捨てて、1 回だけやり直す。
+   * 利用者の書き込み（overlay）は、容量を空けるためであっても捨てない。
+   * 空けられなかった・やり直しも失敗した場合は、そのエラーを呼び出し元（flush）に伝える。
+   */
+  async #writeOverlay(ops: readonly KVOp[]): Promise<void> {
+    try {
+      await this.#instance.batch(ops);
+    } catch (err) {
+      if (!isQuotaError(err)) throw err;
+      let needed = 0;
+      for (const op of ops) if (op.type === "put") needed += op.value.byteLength;
+      if ((await this.#evictBaseCache(needed)) === 0) throw err;
+      await this.#instance.batch(ops);
+    }
+  }
+
+  /**
+   * base キャッシュのチャンクを、少なくとも `neededBytes` ぶん（余裕を見て 2 倍、最低 8 チャンク）捨てる。
+   * このセッションで使っていないものを先に捨てる。捨てたチャンクの数を返す（失敗したら 0）。
+   * base はサーバーから取り直せるので、捨てても失われるデータはない。
+   */
+  async #evictBaseCache(neededBytes: number): Promise<number> {
+    try {
+      const keys = await this.#baseCache.keys(BASE_PREFIX);
+      const untouched = keys.filter((key) => !this.#touchedBase.has(key.slice(BASE_PREFIX.length)));
+      const touched = keys.filter((key) => this.#touchedBase.has(key.slice(BASE_PREFIX.length)));
+      const wanted = Math.max(8, Math.ceil((neededBytes * 2) / this.#chunkSize));
+      const victims = [...untouched, ...touched].slice(0, wanted);
+      if (victims.length === 0) return 0;
+      await this.#baseCache.batch(victims.map((key): KVOp => ({ type: "delete", key })));
+      this.#stats.baseEvictions += victims.length;
+      return victims.length;
+    } catch {
+      return 0;
+    }
   }
 
   #scheduleFlush(): void {

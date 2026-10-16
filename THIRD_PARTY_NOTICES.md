@@ -1,0 +1,39 @@
+# サードパーティのソフトウェアと、再配布の条件（下書き）
+
+> **これは下書きです。法的な助言ではなく、リポジトリの持ち主が確認して決めるための材料です。**
+> 「要確認」と書いた項目は、私（このファイルを書いた AI）が、一次情報（各プロジェクトのライセンス文書）を読んで確かめていません。
+> 公開サイトを作る前に、持ち主が確認してください。
+
+## なぜ必要か
+
+公開サイト（`site/`、`.github/workflows/site.yml` が作る）は、次のものを**そのまま配布**します。
+WasmBox のリポジトリ自体にはこれらは入っていません（`poc/vendor/` はコミットしない）が、サイトを公開すると、訪問者に配ることになります。
+
+## 配布物の一覧
+
+| ファイル（サイト内） | 中身 | 由来 | ライセンス | 状態 |
+|---|---|---|---|---|
+| `vendor/libv86.js`, `vendor/v86.wasm` | v86（x86 エミュレータ） | npm の `v86@0.5` | BSD-2-Clause（と理解している） | 要確認 |
+| `vendor/seabios.bin` | SeaBIOS | copy/v86 リポジトリの `bios/` | LGPL-3.0（と理解している） | 要確認 |
+| `vendor/vgabios.bin` | VGA BIOS | copy/v86 リポジトリの `bios/` | LGPL-2.1（と理解している） | 要確認 |
+| `vendor/kernel.bin` | Linux カーネル（`buildroot-bzimage68_v86.bin`） | [chschnell/v86-buildroot](https://github.com/chschnell/v86-buildroot) v1.0.2 のリリース | GPL-2.0 | 要確認（ソースの提供方法） |
+| `vendor/xterm.js`, `vendor/xterm.css` | ターミナル表示 | npm の `@xterm/xterm@5.5.0` | MIT（と理解している） | 要確認 |
+| `image/chunks/*`, `image/manifest.json` | Alpine Linux 3.21（i386）のルートファイルシステム。Node.js・Python 入り | `image/build.sh` が Docker で作る | パッケージごとに異なる（busybox は GPL-2.0、musl は MIT など） | 要確認（一覧の作成） |
+| `image/initrd.cpio` | 起動用の最小 initrd（`image/initrd/wasmbox-init` と busybox） | `tools/make-initrd.ts` | busybox は GPL-2.0 | 要確認 |
+
+## 持ち主が決めること
+
+1. **WasmBox 自身のライセンス**: リポジトリに `LICENSE` ファイルがありません。決めるのは持ち主です（私は決めていません）。
+2. **GPL の部品（カーネル・busybox など）のソース提供**: バイナリを配布するとき、対応するソースを入手できるようにする義務があります。
+   どのバージョンのソースを、どこに置く（またはどこへのリンクを示す）かを決める必要があります。
+   候補: ① v86-buildroot と Alpine のソースへのリンクを、このファイルとサイトのフッターに明記する、② ソースの写しをサイトに置く。
+3. **ライセンスの一覧の自動作成**: Alpine のパッケージ（`apk info -a` などで、各パッケージのライセンスが分かります）の一覧を、
+   イメージのビルド時に生成して、サイトに載せることを検討してください。🔬 まだ作っていません。
+4. **公開そのもの**: GitHub Pages を有効にするのは持ち主の操作です。`site.yml` の `deploy` ジョブは、
+   Pages を有効にしたあと、`main` ブランチで手動実行したときだけ動きます。
+
+## 確かめたこと・確かめていないこと
+
+- 配布物の**一覧**は、`tools/build-site.ts` と `tools/prepare-vendor.sh` の内容から作りました（事実）。
+- 各ライセンスの**種類**は、私の理解です。各プロジェクトのライセンス文書を、まだ読んでいません。
+- 「要確認」の項目が残っている間は、サイトを公開しないことを勧めます（CI でのビルドと動作確認は、公開とは別なので問題ありません）。
