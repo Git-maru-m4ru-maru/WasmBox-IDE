@@ -21,12 +21,15 @@ page.on("console", (message) => {
   if (message.type() === "error") consoleErrors.push(message.text());
 });
 
-/** ターミナルの画面（スクロールバックを含む）を、行ごとの配列で返す。行末の空白は除く。 */
+/**
+ * ターミナルの画面（スクロールバックを含む）を、行ごとの配列で返す。
+ * 行末の空白は除く。xterm.js の translateToString(true) が削るのは「空のセル」だけで、プロンプト末尾の空白は残るため（CI で確認）。
+ */
 const screenLines = () =>
   page.evaluate(() => {
     const buffer = window.__wasmbox.term.buffer.active;
     const lines = [];
-    for (let y = 0; y < buffer.length; y += 1) lines.push(buffer.getLine(y)?.translateToString(true) ?? "");
+    for (let y = 0; y < buffer.length; y += 1) lines.push((buffer.getLine(y)?.translateToString(true) ?? "").trimEnd());
     return lines;
   });
 
@@ -41,7 +44,7 @@ async function waitForShell(startedAt) {
     () => {
       const buffer = window.__wasmbox.term.buffer.active;
       const lines = [];
-      for (let y = 0; y < buffer.length; y += 1) lines.push(buffer.getLine(y)?.translateToString(true) ?? "");
+      for (let y = 0; y < buffer.length; y += 1) lines.push((buffer.getLine(y)?.translateToString(true) ?? "").trimEnd());
       // Alpine のシェルのプロンプト（ホスト名 wasmbox）。外付け initrd の rescue シェルは "/ #" なので区別できる。
       // 起動ログ（"[wasmbox-init] … へ切り替えます"）は、画面に残らないことがある（CI で確認）。ルートが ext4 かは、あとで /proc/mounts で確かめる。
       const last = [...lines].reverse().find((line) => line.trim() !== "") ?? "";
@@ -69,7 +72,7 @@ async function typeAndWait(command, expected, timeout = COMMAND_TIMEOUT_MS) {
       const regexp = new RegExp(pattern);
       const buffer = window.__wasmbox.term.buffer.active;
       for (let y = 0; y < buffer.length; y += 1) {
-        if (regexp.test(buffer.getLine(y)?.translateToString(true) ?? "")) return true;
+        if (regexp.test((buffer.getLine(y)?.translateToString(true) ?? "").trimEnd())) return true;
       }
       return false;
     },
@@ -124,7 +127,7 @@ try {
       () => {
         const buffer = window.__wasmbox.term.buffer.active;
         for (let y = 0; y < buffer.length; y += 1) {
-          if ((buffer.getLine(y)?.translateToString(true) ?? "") === "あいう") return true;
+          if ((buffer.getLine(y)?.translateToString(true) ?? "").trimEnd() === "あいう") return true;
         }
         return false;
       },
