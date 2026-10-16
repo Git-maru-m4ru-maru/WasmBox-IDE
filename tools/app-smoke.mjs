@@ -31,7 +31,7 @@ const screenLines = () =>
   });
 
 async function screenText() {
-  return (await screenLines()).join("\n");
+  return (await screenLines()).filter((line) => line.trim() !== "").join("\n");
 }
 
 /** 起動して、シェルのプロンプトが出るまで待つ。かかった時間（ms）を返す。 */
@@ -42,9 +42,10 @@ async function waitForShell(startedAt) {
       const buffer = window.__wasmbox.term.buffer.active;
       const lines = [];
       for (let y = 0; y < buffer.length; y += 1) lines.push(buffer.getLine(y)?.translateToString(true) ?? "");
-      const switched = lines.some((line) => line.includes("へ切り替えます"));
+      // Alpine のシェルのプロンプト（ホスト名 wasmbox）。外付け initrd の rescue シェルは "/ #" なので区別できる。
+      // 起動ログ（"[wasmbox-init] … へ切り替えます"）は、画面に残らないことがある（CI で確認）。ルートが ext4 かは、あとで /proc/mounts で確かめる。
       const last = [...lines].reverse().find((line) => line.trim() !== "") ?? "";
-      return switched && /[#$]$/.test(last);
+      return /^wasmbox:\S*[#$]$/.test(last);
     },
     undefined,
     { timeout: BOOT_TIMEOUT_MS, polling: 500 },
