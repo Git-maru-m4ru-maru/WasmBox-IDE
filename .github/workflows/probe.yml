@@ -48,3 +48,15 @@ jobs:
             [ -f "$d/README.md" ] && echo "::notice title=probe $pkg README::$(head -c 5000 "$d/README.md" | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
             echo "::notice title=probe $pkg files::$(find "$d" -maxdepth 2 -not -path '*/node_modules/*' | head -40 | sed ':a;N;$!ba;s/\n/%0A/g')"
           done
+      - name: Read wisp-js server options (names and defaults)
+        run: |
+          cd /tmp/wisp
+          d=node_modules/@mercuryworkshop/wisp-js
+          echo "::notice title=probe wisp-js server files::$(find $d/src/server $d/src/bin -type f | sed ':a;N;$!ba;s/\n/%0A/g')"
+          echo "::notice title=probe wisp-js option names::$(grep -rhoE 'allow_[a-z_]+|[a-z_]*(blacklist|whitelist)[a-z_]*|dns_[a-z_]+|port_[a-z_]+|hostname_[a-z_]+' $d/src | sort | uniq -c | sort -rn | head -40 | sed ':a;N;$!ba;s/\n/%0A/g')"
+          f=$(grep -rlE 'allow_private_ips|allow_loopback_ips|allow_[a-z_]*ips' $d/src | head -3)
+          echo "::notice title=probe wisp-js option files::$(echo "$f" | sed ':a;N;$!ba;s/\n/%0A/g')"
+          for x in $f; do
+            echo "::notice title=probe wisp-js $(basename $x)::$(grep -nE 'allow_|blacklist|whitelist|options|default' $x | head -60 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
+          done
+          timeout 20 npx wisp-js-server --help 2>&1 | head -3 || true
