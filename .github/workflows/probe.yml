@@ -31,3 +31,20 @@ jobs:
           for f in $found; do
             echo "::notice title=probe config $(basename "$f")::$(grep -E 'CONFIG_(NE2K|8390|NE2000|VIRTIO|VIRTIO_NET|NET_VENDOR|E100|PCNET|INET|PACKET|NETDEVICES|ETHERNET)[A-Z0-9_]*=' "$f" | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
           done
+      - name: Look up WISP server packages on npm
+        run: |
+          for pkg in wisp-server-node @mercuryworkshop/wisp-js wisp-js wisp-server-python; do
+            out=$(npm view "$pkg" name version description bin repository.url dist.unpackedSize 2>&1 | head -12 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::notice title=probe npm $pkg::$out"
+          done
+      - name: Read the README and bin of the most likely server package
+        run: |
+          mkdir -p /tmp/wisp && cd /tmp/wisp && npm init -y >/dev/null
+          npm install --no-audit --no-fund @mercuryworkshop/wisp-js wisp-server-node 2>&1 | tail -3 || true
+          for pkg in @mercuryworkshop/wisp-js wisp-server-node; do
+            d=node_modules/$pkg
+            [ -d "$d" ] || { echo "::notice title=probe $pkg::not installed"; continue; }
+            echo "::notice title=probe $pkg package.json::$(jq -c '{name,version,bin,main,exports,type,engines,dependencies}' "$d/package.json" | sed 's/%/%25/g')"
+            [ -f "$d/README.md" ] && echo "::notice title=probe $pkg README::$(head -c 5000 "$d/README.md" | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
+            echo "::notice title=probe $pkg files::$(find "$d" -maxdepth 2 -not -path '*/node_modules/*' | head -40 | sed ':a;N;$!ba;s/\n/%0A/g')"
+          done
