@@ -14,7 +14,8 @@ WasmBox は、ブラウザ内で Linux（エミュレータ上）を動かし、
 npm run typecheck && npm test
 ```
 
-どちらも通る状態でコミットする。ブラウザ側の確認には `npm run poc` と `poc/selftest.html`（`poc/README.md` 参照）を使う。
+どちらも通る状態でコミットする。ブラウザ側の確認には `npm run poc` と `poc/selftest.html`（`poc/README.md` 参照）、ターミナルアプリは `npm run site:build && npm run site:serve`（README.md 参照）を使う。
+実ブラウザ + v86 の確認は、ローカルでは v86 を用意できないことがあるため、GitHub Actions（`.github/workflows/`）で行う。
 
 ## コードの規約
 
@@ -41,4 +42,4 @@ npm run typecheck && npm test
 
 ## コミットしないもの
 
-- `node_modules/`、`poc/dist/`、`poc/vendor/`（v86 の実体やカーネル）、ディスクイメージ、チャンクの出力。
+- `node_modules/`、`poc/dist/`、`poc/vendor/`（v86 の実体やカーネル、xterm.js）、`poc/image/`、`site/`（公開用に組み立てたもの）、ディスクイメージ、チャンクの出力。
