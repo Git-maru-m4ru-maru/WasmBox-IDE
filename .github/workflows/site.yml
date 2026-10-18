@@ -13,6 +13,7 @@ on:
       - "tools/build-site.ts"
       - "tools/prepare-vendor.sh"
       - "tools/app-smoke.mjs"
+      - "tools/net-smoke.mjs"
       - "tools/smoke-lib.mjs"
       - "tools/serve.ts"
       - "tools/chunk-image.ts"
@@ -30,6 +31,7 @@ on:
       - "tools/build-site.ts"
       - "tools/prepare-vendor.sh"
       - "tools/app-smoke.mjs"
+      - "tools/net-smoke.mjs"
       - "tools/smoke-lib.mjs"
       - "tools/serve.ts"
       - "tools/chunk-image.ts"
@@ -47,7 +49,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -59,7 +61,7 @@ jobs:
       - run: npm test
       # --no-save のインストールは package.json にないパッケージを消すので、必要なものを 1 回で指定する
       - name: Install v86, xterm.js and browser smoke dependencies
-        run: npm install --no-save --package-lock=false v86@0.5 @xterm/xterm@5.5.0 playwright
+        run: npm install --no-save --package-lock=false v86@0.5 @xterm/xterm@5.5.0 playwright @mercuryworkshop/wisp-js@0.5.0
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Build Alpine rootfs and verify ext4 chunks
@@ -84,6 +86,13 @@ jobs:
           exit 1
       - name: App smoke test (boot, type, Node.js, save, reload, reset)
         run: node tools/app-smoke.mjs
+      # ネットワークは、カーネルの NIC ドライバ・v86・WISP サーバーに依存し、事前には分からないことが多い。
+      # このステップは「測って annotation に残す」ためのもの（オフの経路だけ厳密に検査する）。
+      # 結果が出そろって、通ると分かったものが決まったら、continue-on-error を外して検査を厳しくする。
+      - name: Network smoke test (off / WISP relay / fetch; measures and records)
+        continue-on-error: true
+        timeout-minutes: 25
+        run: node tools/net-smoke.mjs
       - name: Upload site for GitHub Pages
         uses: actions/upload-pages-artifact@v4
         with:

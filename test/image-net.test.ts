@@ -35,13 +35,24 @@ interface Sandbox {
 }
 
 /** 偽の ip と udhcpc を PATH の先頭に置いた、使い捨ての環境を作る。udhcpcExit は、偽の udhcpc の終了コード。 */
-async function makeSandbox(options: { nics: string[]; udhcpcExit?: number }): Promise<Sandbox> {
+async function makeSandbox(options: {
+  /** Ethernet の NIC（/sys/class/net/<名前>/type が 1） */
+  nics: string[];
+  /** Ethernet 以外のデバイス（名前 → type）。カーネルが作る sit0（768）など */
+  others?: Record<string, string>;
+  udhcpcExit?: number;
+}): Promise<Sandbox> {
   const dir = join(root, String(counter++));
   const bin = join(dir, "bin");
   const sysNet = join(dir, "sys-net");
   await mkdir(bin, { recursive: true });
   await mkdir(sysNet, { recursive: true });
-  for (const nic of ["lo", ...options.nics]) await mkdir(join(sysNet, nic));
+  const devices: Record<string, string> = { lo: "772", ...options.others };
+  for (const nic of options.nics) devices[nic] = "1";
+  for (const [name, type] of Object.entries(devices)) {
+    await mkdir(join(sysNet, name));
+    await writeFile(join(sysNet, name, "type"), type + "\n");
+  }
   const calls = join(dir, "calls.txt");
   await writeFile(calls, "");
   for (const name of ["ip", "udhcpc", "date"]) {
@@ -98,6 +109,15 @@ describe("image/wasmbox-net（起動時のネットワーク初期化）", () =>
     assert.equal(dhcp.length, 1, calls.join("\n"));
     assert.match(dhcp[0] ?? "", /^udhcpc -i eth0 -s \/fake\/udhcpc-script /);
     assert.match(await readFile(sandbox.log, "utf8"), /DHCP 成功: eth0/);
+  });
+
+  it("Ethernet 以外のデバイス（カーネルが作る sit0 など）は、NIC として扱わない", async () => {
+    const sandbox = await makeSandbox({ nics: [], others: { sit0: "768", ip6tnl0: "769" } });
+    run(NET_SCRIPT, [], sandbox.env);
+    const calls = await callsOf(sandbox);
+    assert.ok(!calls.some((call) => call.startsWith("udhcpc")), calls.join("\n"));
+    assert.ok(!calls.includes("ip link set sit0 up"), calls.join("\n"));
+    assert.match(await readFile(sandbox.log, "utf8"), /NIC なし/);
   });
 
   it("DHCP に失敗しても、スクリプトは正常に終わり、失敗をログに残す（起動を止めない）", async () => {
