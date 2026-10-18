@@ -1,3 +1,5 @@
+import { toNetDevice, validateNetworkConfig } from "./network.ts";
+import type { NetworkConfig } from "./network.ts";
 import type { Engine, EngineBootOptions } from "./types.ts";
 import { V86BlockDevice } from "./v86-block-device.ts";
 
@@ -38,6 +40,8 @@ export interface V86EngineOptions {
   cmdline: string;
   /** ディスク I/O の失敗通知。v86 には失敗を伝える手段がなく、失敗するとゲストの該当 I/O は止まる。 */
   onDiskError?: (error: unknown) => void;
+  /** ゲストのネットワーク。指定しなければ NIC を付けない（ネットワークなし）。起動後には変えられない。 */
+  network?: NetworkConfig;
 }
 
 /**
@@ -52,6 +56,7 @@ export class V86Engine implements Engine {
   #started = false;
 
   constructor(options: V86EngineOptions) {
+    if (options.network) validateNetworkConfig(options.network); // 設定ミスは、起動前に分かるようにする
     this.#options = options;
   }
 
@@ -62,7 +67,7 @@ export class V86Engine implements Engine {
     }
     this.#started = true;
 
-    const { V86, assets, cmdline, onDiskError } = this.#options;
+    const { V86, assets, cmdline, onDiskError, network } = this.#options;
     const device = new V86BlockDevice(options.disk, onDiskError ? { onError: onDiskError } : {});
     this.#device = device;
 
@@ -74,6 +79,7 @@ export class V86Engine implements Engine {
       ...(assets.initrd ? { initrd: { url: assets.initrd } } : {}),
       cmdline,
       hda: device,
+      ...(network ? { net_device: toNetDevice(network) } : {}),
       memory_size: options.memoryMiB * MiB,
       // 入出力はシリアルだけ。画面・キーボード・マウス・スピーカーは使わない
       disable_mouse: true,

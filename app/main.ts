@@ -9,6 +9,17 @@ import {
   requestPersistentStorage,
   validateManifest,
 } from "../src/storage/index.ts";
+import {
+  DEFAULT_NETWORK_SETTING,
+  NETWORK_STORAGE_KEY,
+  checkNetworkSetting,
+  describeNetworkSetting,
+  parseNetworkSetting,
+  serializeNetworkSetting,
+  settingFromParams,
+  toNetworkConfig,
+} from "./network-setting.ts";
+import type { NetworkMode, NetworkSetting } from "./network-setting.ts";
 import { SAVE_STATE_LABEL, SaveStateTracker } from "./save-state.ts";
 import type { SaveState } from "./save-state.ts";
 
@@ -65,6 +76,60 @@ function fontSizeFor(width: number): number {
   return Math.max(10, Math.min(17, Math.floor(width / (COLS * 0.6))));
 }
 
+function loadNetworkSetting(): NetworkSetting {
+  try {
+    return parseNetworkSetting(localStorage.getItem(NETWORK_STORAGE_KEY));
+  } catch {
+    return { ...DEFAULT_NETWORK_SETTING }; // localStorage が使えない（プライベートウィンドウなど）
+  }
+}
+
+function saveNetworkSetting(setting: NetworkSetting): boolean {
+  try {
+    localStorage.setItem(NETWORK_STORAGE_KEY, serializeNetworkSetting(setting));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * ネットワークの設定欄。v86 は起動時にしかネットワークを設定できないので、「適用」で保存して再読み込みする。
+ * flushBeforeReload は、再読み込みの前に、ディスクへの書き込みを保存する（エミュレータがあれば）。
+ */
+function wireNetworkForm(saved: NetworkSetting, active: NetworkSetting, flushBeforeReload: () => Promise<void>): void {
+  const radios = [...document.querySelectorAll<HTMLInputElement>('input[name="net"]')];
+  const relayInput = $("relay-url") as HTMLInputElement;
+  const message = $("net-message");
+  for (const radio of radios) radio.checked = radio.value === saved.mode;
+  relayInput.value = saved.relayUrl;
+  $("net-summary").textContent = "ネットワーク: " + describeNetworkSetting(active);
+
+  const selectedMode = (): NetworkMode => {
+    const value = radios.find((radio) => radio.checked)?.value;
+    return value === "fetch" || value === "relay" ? value : "off";
+  };
+  $("net-apply").addEventListener("click", () => {
+    const next: NetworkSetting = { mode: selectedMode(), relayUrl: relayInput.value.trim(), nic: saved.nic };
+    const problem = checkNetworkSetting(next, location.protocol);
+    if (problem) {
+      message.textContent = "⚠️ " + problem;
+      return;
+    }
+    if (!saveNetworkSetting(next)) {
+      message.textContent = "⚠️ このブラウザでは設定を保存できません（プライベートウィンドウなど）。";
+      return;
+    }
+    message.textContent = "保存して再読み込みします…";
+    flushBeforeReload().then(
+      () => location.reload(),
+      (error) => {
+        message.textContent = "⚠️ ディスクの保存に失敗したため、再読み込みしませんでした: " + describeError(error);
+      },
+    );
+  });
+}
+
 type Hooks = Window & { __wasmbox?: { term: Terminal; store: ChunkedBlockStore; engine: V86Engine } };
 
 async function main(): Promise<void> {
@@ -80,6 +145,18 @@ async function main(): Promise<void> {
     showPhase("起動できません", "memory は 64〜2048（MiB）で指定してください: " + String(params.get("memory")), "error");
     return;
   }
+
+  // ネットワークの設定。自動テストのときだけ、URL パラメータで上書きできる
+  // （リンクから、通信先のリレーを勝手に差し替えられないようにするため。通常は、利用者が設定欄で入力したものだけを使う）
+  const savedNetwork = loadNetworkSetting();
+  const requestedNetwork = (smoke ? settingFromParams(params) : undefined) ?? savedNetwork;
+  const networkProblem = checkNetworkSetting(requestedNetwork, location.protocol);
+  const activeNetwork = networkProblem ? DEFAULT_NETWORK_SETTING : requestedNetwork;
+  let engine: V86Engine | undefined;
+  wireNetworkForm(savedNetwork, activeNetwork, async () => {
+    await engine?.flush();
+  });
+  if (networkProblem) notify("⚠️ ネットワークの設定を使えないため、オフで起動します: " + networkProblem, true);
 
   const term = new Terminal({
     cols: COLS,
@@ -165,7 +242,8 @@ async function main(): Promise<void> {
     throw error;
   }
 
-  const engine = new V86Engine({
+  const networkConfig = toNetworkConfig(activeNetwork);
+  engine = new V86Engine({
     V86,
     assets: {
       wasm: "vendor/v86.wasm",
@@ -178,6 +256,7 @@ async function main(): Promise<void> {
     onDiskError: (error) => {
       if (!resetting) notify("⚠️ ディスクの読み書きに失敗しました（ゲストが止まります）: " + describeError(error), true);
     },
+    ...(networkConfig ? { network: networkConfig } : {}),
   });
   installAutoFlush(engine, { onError: (error) => !resetting && notify("⚠️ 保存に失敗しました: " + describeError(error), true) });
 
@@ -215,7 +294,8 @@ async function main(): Promise<void> {
   $("terminal").addEventListener("click", () => term.focus());
 
   $("info").textContent =
-    "イメージ " + manifest.imageId + "（" + (manifest.size / MiB).toFixed(0) + " MiB）／ RAM " + memoryMiB + " MiB";
+    "イメージ " + manifest.imageId + "（" + (manifest.size / MiB).toFixed(0) + " MiB）／ RAM " + memoryMiB + " MiB" +
+    "／ ネットワーク " + describeNetworkSetting(activeNetwork);
 
   const tracker = new SaveStateTracker();
   const refreshSaveState = () => applySaveState(tracker.update(store.stats()));

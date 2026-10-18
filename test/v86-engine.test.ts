@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { V86BlockDevice } from "../src/engine/v86-block-device.ts";
 import { V86Engine } from "../src/engine/v86-engine.ts";
+import type { NetworkConfig } from "../src/engine/network.ts";
 import type { V86Emulator } from "../src/engine/v86-engine.ts";
 import { eventually, makeImage, newEnv, openStore, sleep } from "./helpers.ts";
 
@@ -89,6 +90,21 @@ describe("V86Engine", () => {
     const { boot } = await setup({ initrd: "image/initrd.cpio" });
     await boot();
     assert.deepEqual(emulator().options["initrd"], { url: "image/initrd.cpio" });
+  });
+
+  it("network を指定したときだけ、net_device を v86 に渡す。設定が不正なら、作った時点で例外", async () => {
+    const image = await makeImage({ size: SIZE, chunkSize: CS });
+    const store = await openStore(image, newEnv(image));
+    const make = (network?: NetworkConfig) =>
+      new V86Engine({ V86: FakeV86, assets: ASSETS, cmdline: "console=ttyS0", ...(network ? { network } : {}) });
+
+    await make().boot({ disk: store, memoryMiB: 256, onOutput: () => {} });
+    assert.equal("net_device" in emulator().options, false, "既定ではネットワークなし");
+
+    await make({ mode: "relay", url: "wisps://relay.example/", nic: "virtio" }).boot({ disk: store, memoryMiB: 256, onOutput: () => {} });
+    assert.deepEqual(emulator().options["net_device"], { type: "virtio", relay_url: "wisps://relay.example/" });
+
+    assert.throws(() => make({ mode: "relay", url: "http://relay.example/" }), /ws:\/\/ wss:\/\/ wisp:\/\/ wisps:\/\//);
   });
 
   it("シリアルの出力を、1 バイトずつではなくまとめて onOutput に渡す", async () => {
