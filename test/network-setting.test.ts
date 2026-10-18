@@ -8,6 +8,7 @@ import {
   serializeNetworkSetting,
   settingFromParams,
   toNetworkConfig,
+  withNetworkFlag,
 } from "../app/network-setting.ts";
 import type { NetworkSetting } from "../app/network-setting.ts";
 
@@ -55,6 +56,13 @@ describe("toNetworkConfig", () => {
     assert.equal(toNetworkConfig(DEFAULT_NETWORK_SETTING), undefined);
     assert.deepEqual(toNetworkConfig({ mode: "fetch", relayUrl: "ignored", nic: "ne2k" }), { mode: "fetch", nic: "ne2k" });
     assert.deepEqual(toNetworkConfig(relay(" wss://r.example/ ", "virtio")), { mode: "relay", url: "wss://r.example/", nic: "virtio" });
+  });
+});
+
+describe("withNetworkFlag", () => {
+  it("有効なときだけ、コマンドラインの末尾に wasmbox.net=on を足す", () => {
+    assert.equal(withNetworkFlag("rw console=ttyS0", true), "rw console=ttyS0 wasmbox.net=on");
+    assert.equal(withNetworkFlag("rw console=ttyS0", false), "rw console=ttyS0");
   });
 });
 

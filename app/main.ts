@@ -18,6 +18,7 @@ import {
   serializeNetworkSetting,
   settingFromParams,
   toNetworkConfig,
+  withNetworkFlag,
 } from "./network-setting.ts";
 import type { NetworkMode, NetworkSetting } from "./network-setting.ts";
 import { SAVE_STATE_LABEL, SaveStateTracker } from "./save-state.ts";
@@ -252,7 +253,10 @@ async function main(): Promise<void> {
       kernel: "vendor/kernel.bin",
       initrd: initrdUrl,
     },
-    cmdline: "rdinit=/wasmbox-init root=/dev/sda rootfstype=ext4 rw rootwait console=ttyS0 tsc=reliable mitigations=off random.trust_cpu=on",
+    cmdline: withNetworkFlag(
+      "rdinit=/wasmbox-init root=/dev/sda rootfstype=ext4 rw rootwait console=ttyS0 tsc=reliable mitigations=off random.trust_cpu=on",
+      networkConfig !== undefined,
+    ),
     onDiskError: (error) => {
       if (!resetting) notify("⚠️ ディスクの読み書きに失敗しました（ゲストが止まります）: " + describeError(error), true);
     },

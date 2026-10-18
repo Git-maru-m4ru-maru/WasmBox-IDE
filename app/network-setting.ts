@@ -47,6 +47,17 @@ export function settingFromParams(params: URLSearchParams): NetworkSetting | und
   );
 }
 
+/**
+ * カーネルのコマンドラインに足す印。ゲストの /usr/local/sbin/wasmbox-net は、これがあるときだけ DHCP を試す
+ * （v86 は、ネットワークがオフでも NIC を作るので、ゲストだけでは有効かどうかを判断できない）。
+ */
+export const NETWORK_CMDLINE_FLAG = "wasmbox.net=on";
+
+/** ネットワークが有効なときだけ、コマンドラインに印を足す */
+export function withNetworkFlag(cmdline: string, enabled: boolean): string {
+  return enabled ? `${cmdline} ${NETWORK_CMDLINE_FLAG}` : cmdline;
+}
+
 /** Engine に渡す設定に変換する。オフなら undefined（NIC を付けない）。 */
 export function toNetworkConfig(setting: NetworkSetting): NetworkConfig | undefined {
   if (setting.mode === "off") return undefined;

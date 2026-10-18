@@ -6,7 +6,7 @@
 // annotation に残す。厳密に検査するのは、通常の経路（ネットワークがオフのとき）だけ。
 //
 // シナリオ:
-//   off          … ネットワークなし。lo が上がり、NIC がなく、resolv.conf が /run へのリンクであること（検査する）
+//   off          … ネットワークなし。lo が上がり、DHCP を試さず（v86 は、オフでも NIC を作る）、resolv.conf が /run へのリンクであること（検査する）
 //   relay-ne2k   … WISP リレー（このスクリプトが runner 上で起動する wisp-js）+ ne2k。DHCP・DNS・HTTP・HTTPS・apk・Python・Node.js
 //   fetch        … ブラウザの fetch のみ（HTTP の 80 番だけ）。CORS を許可する、runner 上の HTTP サーバーへ
 //   relay-virtio … WISP リレー + virtio。NIC・DHCP・HTTP だけ
@@ -270,10 +270,14 @@ try {
     const lo = await run("lo", "ip -4 addr show lo; ip link show lo");
     assert.match(lo.out, /127\.0\.0\.1/, "lo にアドレスがありません:\n" + lo.out);
     assert.match(lo.out, /\bUP\b|LOOPBACK,UP/, "lo が上がっていません:\n" + lo.out);
+    // v86 は、ネットワークがオフでも NIC（eth0）を作る（実測）。オフのときは、アドレスを取ろうとしない
     const devices = await run("デバイス（名前 type）", NET_DEVICES);
-    assert.doesNotMatch(devices.out, /type=1$/m, "オフなのに Ethernet の NIC があります:\n" + devices.out);
     const log = await run("wasmbox-net のログ", "cat /run/wasmbox-net.log", { keep: 400 });
-    assert.match(log.out, /NIC なし/, "wasmbox-net が動いていません:\n" + log.out);
+    assert.match(log.out, /ネットワークはオフ/, "wasmbox-net が動いていない、またはオフを認識していません:\n" + log.out);
+    const eth = await run("eth0 のアドレス（なし）", "ip -4 addr show eth0 2>&1 | grep -c inet || true");
+    assert.equal(eth.out.trim(), "0", "オフなのに eth0 にアドレスがあります:\n" + devices.out);
+    const cmdline = await run("コマンドライン", "cat /proc/cmdline", { keep: 300 });
+    assert.doesNotMatch(cmdline.out, /wasmbox\.net=on/, "オフなのにコマンドラインに wasmbox.net=on があります");
     const link = await run("resolv.conf", "ls -l /etc/resolv.conf");
     assert.match(link.out, /-> \/run\/resolv\.conf/, "resolv.conf が /run へのリンクではありません:\n" + link.out);
     // 127.0.0.1 の待ち受けが使えること（Node.js がループバックで通信できる）
@@ -285,7 +289,11 @@ try {
     assert.match(loopback.out, /pong/, "ループバックで通信できません:\n" + loopback.out);
     await run("外への通信は失敗する", "wget -T 3 -qO- http://example.com/ | head -c 100", { timeoutMs: 30_000 });
   });
-  if (off.error) throw new Error("off シナリオが失敗しました: " + off.error + "\n" + (off.screenTail ?? ""));
+  // off が失敗しても、ほかの方式の測定は続ける（最後に、失敗として報告する）
+  if (off.error) {
+    exitCode = 1;
+    failure("WasmBox net off failure", off.error + "\n" + (off.screenTail ?? ""));
+  }
 
   // --- relay-ne2k: WISP ---
   await scenario(browser, "relay-ne2k", `net=relay&relay=wisp://127.0.0.1:${WISP_PORT}/&nic=ne2k`, async (run) => {
@@ -326,6 +334,7 @@ try {
   // --- relay-virtio: 軽く ---
   await scenario(browser, "relay-virtio", `net=relay&relay=wisp://127.0.0.1:${WISP_PORT}/&nic=virtio`, async (run) => {
     await inspectNetwork(run);
+    await run("コマンドライン", "cat /proc/cmdline", { keep: 300 });
     if (TARGET_HOST) await run("runner の HTTP（IP 指定）", `wget -T 15 -qO- http://${TARGET_HOST}:${TARGET_PORT}/hello`, { timeoutMs: 40_000 });
   });
 } catch (error) {

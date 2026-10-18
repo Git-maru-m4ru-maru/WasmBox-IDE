@@ -41,6 +41,8 @@ async function makeSandbox(options: {
   /** Ethernet 以外のデバイス（名前 → type）。カーネルが作る sit0（768）など */
   others?: Record<string, string>;
   udhcpcExit?: number;
+  /** カーネルのコマンドライン（既定は、ネットワークが有効なとき）。null ならファイルを作らない */
+  cmdline?: string | null;
 }): Promise<Sandbox> {
   const dir = join(root, String(counter++));
   const bin = join(dir, "bin");
@@ -64,6 +66,8 @@ async function makeSandbox(options: {
     );
     await chmod(join(bin, name), 0o755);
   }
+  const cmdlineFile = join(dir, "cmdline");
+  if (options.cmdline !== null) await writeFile(cmdlineFile, (options.cmdline ?? "console=ttyS0 wasmbox.net=on rw") + "\n");
   const log = join(dir, "net.log");
   const resolv = join(dir, "resolv.conf");
   return {
@@ -77,6 +81,7 @@ async function makeSandbox(options: {
       WASMBOX_NET_LOG: log,
       WASMBOX_SYS_NET: sysNet,
       WASMBOX_UDHCPC_SCRIPT: "/fake/udhcpc-script",
+      WASMBOX_CMDLINE_FILE: cmdlineFile,
       WASMBOX_RESOLV_CONF: resolv,
     },
   };
@@ -97,6 +102,27 @@ describe("image/wasmbox-net（起動時のネットワーク初期化）", () =>
     assert.ok(calls.includes("ip link set lo up"), calls.join("\n"));
     assert.ok(!calls.some((call) => call.startsWith("udhcpc")), "NIC がないのに DHCP を試した");
     assert.match(await readFile(sandbox.log, "utf8"), /NIC なし/);
+  });
+
+  it("コマンドラインに wasmbox.net=on がなければ（ネットワークがオフ）、NIC があっても DHCP は試さない。lo は上げる", async () => {
+    // v86 は、ネットワークがオフでも NIC（eth0）を作る。つながる先がないので、DHCP を試すと失敗するまで約 15 秒かかる
+    for (const cmdline of ["console=ttyS0 rw", "wasmbox.net=off", "wasmbox.net=onx", "x.wasmbox.net=on", "wasmbox.net=", null]) {
+      const sandbox = await makeSandbox({ nics: ["eth0"], cmdline });
+      const result = run(NET_SCRIPT, [], sandbox.env);
+      assert.equal(result.status, 0);
+      const calls = await callsOf(sandbox);
+      assert.ok(calls.includes("ip link set lo up"), `${cmdline}: ${calls.join("\n")}`);
+      assert.ok(!calls.some((call) => call.startsWith("udhcpc") || call === "ip link set eth0 up"), `${cmdline}: ${calls.join("\n")}`);
+      assert.match(await readFile(sandbox.log, "utf8"), /ネットワークはオフ/);
+    }
+  });
+
+  it("コマンドラインのほかの項目に挟まれていても、wasmbox.net=on を見つける", async () => {
+    for (const cmdline of ["wasmbox.net=on", "a=1 wasmbox.net=on", "wasmbox.net=on b=2", "a=1 wasmbox.net=on b=2"]) {
+      const sandbox = await makeSandbox({ nics: ["eth0"], cmdline });
+      run(NET_SCRIPT, [], sandbox.env);
+      assert.ok((await callsOf(sandbox)).some((call) => call.startsWith("udhcpc")), cmdline);
+    }
   });
 
   it("lo 以外の NIC があれば、上げて、その NIC に DHCP を試す。lo には DHCP を試さない", async () => {
