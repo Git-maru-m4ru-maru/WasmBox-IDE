@@ -1,0 +1,31 @@
+#!/bin/sh
+# WasmBox のネットワーク初期化。busybox init の ::once: から起動される（image/inittab）。
+#   - lo（ループバック）は、ネットワークの設定にかかわらず、いつも上げる（Node.js などが 127.0.0.1 を使うため）。
+#   - lo 以外の NIC があれば、DHCP でアドレスを取る。NIC がなければ（アプリの設定がオフ）、何もせず終わる。
+#   - 経過は /run/wasmbox-net.log に残す。コンソール（シリアル）には何も出さない。
+# 環境変数（WASMBOX_NET_LOG / WASMBOX_SYS_NET / WASMBOX_UDHCPC_SCRIPT）は、テストで差し替えるためのもの。
+LOG=${WASMBOX_NET_LOG:-/run/wasmbox-net.log}
+SYS_NET=${WASMBOX_SYS_NET:-/sys/class/net}
+UDHCPC_SCRIPT=${WASMBOX_UDHCPC_SCRIPT:-/usr/local/sbin/wasmbox-udhcpc-script}
+
+exec >"$LOG" 2>&1
+echo "wasmbox-net: 開始 $(date 2>&1)"
+
+ip link set lo up || echo "lo を上げられませんでした"
+
+found=0
+for dir in "$SYS_NET"/*; do
+  [ -e "$dir" ] || continue
+  ifc=${dir##*/}
+  [ "$ifc" = lo ] && continue
+  found=1
+  echo "NIC: $ifc"
+  ip link set "$ifc" up || echo "$ifc を上げられませんでした"
+  if udhcpc -i "$ifc" -s "$UDHCPC_SCRIPT" -q -n -t 5 -T 3; then
+    echo "DHCP 成功: $ifc"
+  else
+    echo "DHCP 失敗: $ifc"
+  fi
+done
+[ "$found" = 1 ] || echo "NIC なし（ネットワークはオフ）"
+exit 0

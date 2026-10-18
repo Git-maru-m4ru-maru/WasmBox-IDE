@@ -6,7 +6,7 @@ export type NetworkMode = "off" | "fetch" | "relay";
 
 export interface NetworkSetting {
   mode: NetworkMode;
-  /** mode が relay のときのリレーの URL（wss:// か wisps:// を勧める） */
+  /** mode が relay のときのリレーの URL。wisps:// / wisp:// は WISP サーバー、wss:// / ws:// は従来の WebSocket リレー（Ethernet フレーム） */
   relayUrl: string;
   nic: NicType;
 }
@@ -61,7 +61,7 @@ export function toNetworkConfig(setting: NetworkSetting): NetworkConfig | undefi
 export function checkNetworkSetting(setting: NetworkSetting, pageProtocol: string): string | undefined {
   if (setting.mode !== "relay") return undefined;
   const url = setting.relayUrl.trim();
-  if (url === "") return "リレーの URL を入力してください（例: wss://relay.example.com/）";
+  if (url === "") return "リレーの URL を入力してください（例: wisps://relay.example.com/）";
   try {
     validateNetworkConfig({ mode: "relay", url, nic: setting.nic });
   } catch (error) {

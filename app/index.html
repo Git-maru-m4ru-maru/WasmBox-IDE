@@ -121,9 +121,10 @@
         <label><input type="radio" name="net" value="off"> オフ（既定）</label>
         <label><input type="radio" name="net" value="fetch"> ブラウザのみ（fetch）</label>
         <p class="hint">サーバー不要。ゲストの HTTP（80 番）だけが通ります。HTTPS（apk・npm・pip など）は通りません。相手が CORS を許可していないページも読めません。</p>
-        <label><input type="radio" name="net" value="relay"> リレー経由（WISP）</label>
-        <p class="hint">TCP 全般が通ります。リレーのサーバーが必要です（自分で用意するか、信頼できる人のものを使ってください。通信の宛先と量は、リレーの運営者に見えます）。</p>
-        <label class="hint" for="relay-url" style="margin-left:1.6rem">リレーの URL（wss:// か wisps://）</label>
+        <label><input type="radio" name="net" value="relay"> リレー経由</label>
+        <p class="hint">TCP 全般が通ります。リレーのサーバーが必要です（自分で用意するか、信頼できる人のものを使ってください。通信の宛先と量は、リレーの運営者に見えます）。
+          <code>wisps://</code>・<code>wisp://</code> は WISP サーバー用（推奨）、<code>wss://</code>・<code>ws://</code> は Ethernet フレームを中継する従来のリレー用です。https のページでは、暗号化される <code>wisps://</code> と <code>wss://</code> だけ使えます。</p>
+        <label class="hint" for="relay-url" style="margin-left:1.6rem">リレーの URL</label>
         <input id="relay-url" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="wisps://relay.example.com/">
       </fieldset>
       <button id="net-apply" type="button">適用して再読み込み</button>
