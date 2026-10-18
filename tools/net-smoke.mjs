@@ -7,9 +7,9 @@
 //
 // シナリオ:
 //   off          … ネットワークなし。lo が上がり、DHCP を試さず（v86 は、オフでも NIC を作る）、resolv.conf が /run へのリンクであること（検査する）
-//   relay-ne2k   … WISP リレー（このスクリプトが runner 上で起動する wisp-js）+ ne2k。DHCP・DNS・HTTP・HTTPS・apk・Python・Node.js
+//   relay-ne2k   … WISP リレー（このスクリプトが runner 上で起動する wisp-js）+ ne2k。DHCP・DNS・HTTP・HTTPS・転送速度・apk・Python・Node.js・npm
+//   relay-virtio … 同じ内容を virtio で（NIC の種類による違いを比べる）
 //   fetch        … ブラウザの fetch のみ（HTTP の 80 番だけ）。CORS を許可する、runner 上の HTTP サーバーへ
-//   relay-virtio … WISP リレー + virtio。NIC・DHCP・HTTP だけ
 //
 // 前提: tools/serve.ts で site/ を http://127.0.0.1:8080/ に配信していること。
 //       @mercuryworkshop/wisp-js がインストールされていること（npm install --no-save）。
@@ -48,9 +48,10 @@ const target = http.createServer((request, response) => {
     response.end();
     return;
   }
-  if (request.url?.startsWith("/big")) {
+  const big = /^\/big\/(\d+)$/.exec(request.url ?? "");
+  if (big) {
     response.writeHead(200, { ...CORS, "content-type": "application/octet-stream" });
-    response.end(Buffer.alloc(1024 * 1024, 0x78));
+    response.end(Buffer.alloc(Math.min(Number(big[1]), 64 * 1024 * 1024), 0x78));
     return;
   }
   response.writeHead(200, { ...CORS, "content-type": "text/plain" });
@@ -100,6 +101,14 @@ async function waitForPort(port, timeoutMs) {
 // ゲストの操作
 // ---------------------------------------------------------------------------
 
+const byteLength = (text) => Buffer.byteLength(text, "utf8");
+/** UTF-8 で maxBytes 以下になるまで、末尾を削る */
+function truncateBytes(text, maxBytes) {
+  if (byteLength(text) <= maxBytes) return text;
+  let cut = text.slice(0, Math.min(text.length, maxBytes));
+  while (byteLength(cut + "…(省略)") > maxBytes) cut = cut.slice(0, Math.max(0, cut.length - 20));
+  return cut + "…(省略)";
+}
 const truncate = (text, limit) => (text.length > limit ? text.slice(0, limit) + "…(省略)" : text);
 
 /** ターミナルの画面を、折り返しを 1 行に戻した「論理行」の配列で返す（ブラウザ側で動く関数。外の変数は使えない） */
@@ -165,7 +174,7 @@ function makeGuest(page, steps) {
     );
   }
 
-  return async function run(name, command, { timeoutMs = 60_000, keep = 500 } = {}) {
+  return async function run(name, command, { timeoutMs = 60_000, keep = 140 } = {}) {
     if (Date.now() > DEADLINE) {
       steps.push({ name, skipped: "全体の時間切れ" });
       return { rc: "skipped", out: "" };
@@ -253,9 +262,9 @@ const NET_DEVICES = 'for d in /sys/class/net/*; do echo "${d##*/} type=$(cat $d/
 /** 共通の、NIC・DHCP・経路・DNS・時刻の確認（探索） */
 async function inspectNetwork(run) {
   await run("デバイス（名前 type）", NET_DEVICES);
-  await run("wasmbox-net のログ", "cat /run/wasmbox-net.log", { keep: 900 });
-  await run("dmesg（NIC 関連）", "dmesg | grep -iE 'ne2k|8390|eth[0-9]|virtio|e1000|rtl8139|pci' | head -n 14", { keep: 1200 });
-  await run("アドレスと経路", "ip -4 addr show; ip route", { keep: 700 });
+  await run("wasmbox-net のログ", "grep -vE 'broadcasting|started|deconfig' /run/wasmbox-net.log", { keep: 420 });
+  await run("dmesg（NIC 関連）", "dmesg | grep -iE '8390|ne2k|ne2000|virtio_net|virtio-pci|eth0' | head -n 6", { keep: 400 });
+  await run("アドレスと経路", "ip -4 addr show eth0 | grep -E 'inet|state'; ip route", { keep: 300 });
   await run("resolv.conf と時刻", "ls -l /etc/resolv.conf; cat /etc/resolv.conf; date -u", { keep: 500 });
 }
 
@@ -295,32 +304,36 @@ try {
     failure("WasmBox net off failure", off.error + "\n" + (off.screenTail ?? ""));
   }
 
-  // --- relay-ne2k: WISP ---
-  await scenario(browser, "relay-ne2k", `net=relay&relay=wisp://127.0.0.1:${WISP_PORT}/&nic=ne2k`, async (run) => {
+  // --- relay-ne2k / relay-virtio: WISP（同じ内容を、NIC の種類を変えて測る）---
+  const relayScenario = async (run) => {
     await inspectNetwork(run);
+    await run("コマンドライン", "cat /proc/cmdline | grep -o 'wasmbox.net=on'");
     if (TARGET_HOST) {
-      const hello = await run("runner の HTTP（IP 指定）", `wget -T 15 -qO- http://${TARGET_HOST}:${TARGET_PORT}/hello`, { timeoutMs: 40_000 });
-      if (hello.rc === 0) {
-        await run("1 MiB の転送", `wget -T 30 -qO- http://${TARGET_HOST}:${TARGET_PORT}/big | wc -c`, { timeoutMs: 90_000 });
-      }
+      await run("runner の HTTP（IP 指定）", `wget -T 15 -qO- http://${TARGET_HOST}:${TARGET_PORT}/hello`, { timeoutMs: 40_000 });
+      await run("8 MiB の転送（バイト数）", `wget -T 60 -qO- http://${TARGET_HOST}:${TARGET_PORT}/big/8388608 | wc -c`, { timeoutMs: 120_000 });
     }
-    await run("DNS（nslookup）", "nslookup example.com", { timeoutMs: 30_000, keep: 400 });
-    await run("インターネットの HTTP", "wget -T 20 -qO- http://example.com/ | head -c 160", { timeoutMs: 45_000 });
-    await run("インターネットの HTTPS（wget）", "wget -T 30 -qO- https://example.com/ | head -c 160", { timeoutMs: 60_000 });
-    await run("apk update", "apk update", { timeoutMs: 300_000, keep: 600 });
-    await run("apk add jq", "apk add --no-cache jq && jq --version", { timeoutMs: 300_000, keep: 600 });
+    await run("DNS（nslookup）", "nslookup example.com | grep -c Address", { timeoutMs: 30_000 });
+    await run("インターネットの HTTP", "wget -T 20 -qO- http://example.com/ | head -c 60", { timeoutMs: 45_000 });
+    await run("インターネットの HTTPS（wget）", "wget -T 30 -qO- https://example.com/ | head -c 60", { timeoutMs: 60_000 });
+    await run("apk update", "apk update | tail -n 2", { timeoutMs: 300_000, keep: 200 });
+    await run("apk add jq", "apk add --no-cache jq 2>&1 | tail -n 2 && jq --version", { timeoutMs: 300_000, keep: 200 });
     await run(
       "Python の HTTPS",
       `python3 -c "import urllib.request as u; print(u.urlopen('https://example.com/', timeout=60).status)"`,
-      { timeoutMs: 120_000, keep: 600 },
+      { timeoutMs: 120_000, keep: 200 },
     );
     await run("Node.js の HTTPS", `node -e "fetch('https://example.com/').then(r=>console.log(r.status),e=>{console.log('ERR',e.cause&&e.cause.code||e.message)})"`, {
       timeoutMs: 150_000,
-      keep: 400,
     });
-    await run("apk add npm", "apk add --no-cache npm && npm --version", { timeoutMs: 400_000, keep: 600 });
-    await run("npm view", "cd /tmp && npm view is-odd version", { timeoutMs: 400_000, keep: 600 });
-  });
+    await run("apk add npm", "apk add --no-cache npm 2>&1 | tail -n 1 && npm --version", { timeoutMs: 400_000, keep: 200 });
+    await run("npm view", "cd /tmp && npm view is-odd version", { timeoutMs: 400_000, keep: 200 });
+    await run("npm install", "cd /tmp && mkdir -p npmtest && cd npmtest && npm install is-odd 2>&1 | tail -n 2 && node -e \"console.log(require('is-odd')(3))\"", {
+      timeoutMs: 400_000,
+      keep: 200,
+    });
+  };
+  await scenario(browser, "relay-ne2k", `net=relay&relay=wisp://127.0.0.1:${WISP_PORT}/&nic=ne2k`, relayScenario);
+  await scenario(browser, "relay-virtio", `net=relay&relay=wisp://127.0.0.1:${WISP_PORT}/&nic=virtio`, relayScenario);
 
   // --- fetch: ブラウザの fetch のみ ---
   await scenario(browser, "fetch", "net=fetch", async (run) => {
@@ -331,21 +344,36 @@ try {
     await run("HTTPS は通らないはず", "wget -T 8 -qO- https://example.com/ | head -c 100", { timeoutMs: 40_000 });
   });
 
-  // --- relay-virtio: 軽く ---
-  await scenario(browser, "relay-virtio", `net=relay&relay=wisp://127.0.0.1:${WISP_PORT}/&nic=virtio`, async (run) => {
-    await inspectNetwork(run);
-    await run("コマンドライン", "cat /proc/cmdline", { keep: 300 });
-    if (TARGET_HOST) await run("runner の HTTP（IP 指定）", `wget -T 15 -qO- http://${TARGET_HOST}:${TARGET_PORT}/hello`, { timeoutMs: 40_000 });
-  });
 } catch (error) {
   exitCode = 1;
   failure("WasmBox net failure", String(error?.stack ?? error));
 } finally {
-  // annotation は 1 ステップあたりの件数に上限があるので、シナリオごとに 1 件にまとめる
+  // annotation の message は 4 KB 前後で切れる（実測。バイト数か文字数かは未確認なので、安全側にバイト数で数える。日本語は 1 文字 3 バイト）。
+  // シナリオごとに、短い 1 行 1 ステップの形にして、3000 バイトずつに分けて出す。
   for (const result of results) {
-    notice(`WasmBox net ${result.name}`, result);
+    const lines = [
+      `boot=${result.bootSeconds}s${result.error ? " ERROR=" + result.error : ""}`,
+      ...result.steps.map(
+        (step) => `[${step.name}] ${step.skipped ? "skipped" : "rc=" + step.rc + " " + step.ms + "ms"} | ${(step.out ?? "").replace(/\n/g, " ⏎ ")}`,
+      ),
+      "targetRequests=" + JSON.stringify(result.targetRequests ?? []).slice(0, 300),
+      "console=" + JSON.stringify((result.console ?? []).slice(0, 4)).slice(0, 500),
+      ...(result.screenTail ? ["screen: " + result.screenTail.replace(/\n/g, " ⏎ ")] : []),
+    ];
+    const chunks = [];
+    let current = "";
+    for (const line of lines) {
+      const piece = truncateBytes(line, 2900);
+      if (byteLength(current) + byteLength(piece) + 1 > 3000 && current !== "") {
+        chunks.push(current);
+        current = "";
+      }
+      current += (current ? "\n" : "") + piece;
+    }
+    chunks.push(current);
+    chunks.forEach((chunk, index) => notice(`WasmBox net ${result.name} (${index + 1}/${chunks.length})`, chunk));
   }
-  notice("WasmBox net wisp-server", truncate(wispLog.join("").slice(-1500), 1500));
+  notice("WasmBox net wisp-server", truncate(wispLog.join("").slice(-1200), 1200));
   await browser.close();
   wisp.kill("SIGTERM");
   target.close();
