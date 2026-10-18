@@ -4,7 +4,9 @@
 
 v86（x86 エミュレータ）の上で Alpine Linux（Node.js・Python 入り）が動き、ディスクは IndexedDB に永続化される。
 xterm.js のターミナルページ（`app/`）から使える。**M1〜M5・ターミナルアプリ・ネットワーク（既定はオフ）は実ブラウザで確認済み**（確認の内容と、確認していないことは「検証状況」を参照）。
-進み具合は ARCHITECTURE.md の 9 章。GitHub Pages はすでに有効（持ち主の設定）で、`https://maru-m4ru-maru.github.io/WasmBox/` には、この README を文書として表示するページが公開されている（2026-10-18 に確認。**アプリではない**）。デプロイの記録（`ref=claude/complete-wasmbox`）から、公開元は、この開発ブランチと見られる（Pages の設定は API が使えず、直接は読めていない）。アプリ本体の公開（`site.yml` の `deploy`）は、まだ行っていない。ライセンスの確認などは持ち主の判断（[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)）。
+進み具合は ARCHITECTURE.md の 9 章。GitHub Pages はすでに有効（持ち主の設定）で、`https://maru-m4ru-maru.github.io/WasmBox/` には、この README を文書として表示するページが公開されている（2026-10-18 に確認。**アプリではない**）。持ち主の方針（2026-10-19）は、**Pages での公開は一時的で、ソースコードを見せるだけ**。アプリ本体は Pages に載せない（CI も、Pages 用の成果物を、`main` での手動実行のとき以外は作らない）。
+デプロイの記録（`ref=claude/complete-wasmbox`）から、公開元は、この開発ブランチと見られる（Pages の設定は API が使えず、直接は読めていない）。
+ライセンスは **GPL-3.0**（[LICENSE](./LICENSE)。下の「ライセンス」）。
 AI エージェントや共同開発者向けのルールは [AGENTS.md](./AGENTS.md)。
 
 ## セットアップ
@@ -32,7 +34,7 @@ npm run site:serve           # http://127.0.0.1:8080/ を開く
 ```
 
 CI（`.github/workflows/site.yml`）が、同じ手順でビルドして実ブラウザで確かめる。
-公開（GitHub Pages）は、`site.yml` の `deploy` ジョブを `main` で手動実行したときだけ動く。
+方針（2026-10-19）として、アプリは Pages に載せない。`site.yml` の `deploy` ジョブと、Pages 用の成果物の作成は、将来アプリを公開する場合のために残してあり、`main` で手動実行したときだけ動く。
 🔬 `deploy` ジョブは、Pages の公開元が「GitHub Actions」であることを前提にする。いまの Pages は、ブランチから直接公開しているように見えるので、
 アプリを公開するときは、持ち主が Pages の設定（Settings → Pages → Source）を変える必要がある（私は設定を変えていない。公式の手順は未確認）。
 
@@ -198,9 +200,17 @@ node tools/chunk-image.ts rootfs.img out/ --chunk-size=262144 --image-id=alpine-
 
 - `navigator.storage.estimate()` を見て、容量が尽きる**前**に base キャッシュを捨てること（いまは、断られてから動く。ARCHITECTURE.md 4.5）
 - エミュレータの Web Worker 化（いまはメインスレッド。ARCHITECTURE.md 8 章）
-- 公開（持ち主の判断が要る: Pages の有効化、`LICENSE`、GPL の部品のソース提供。[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)）
+- アプリ本体の公開（いまの方針は「Pages に載せない」。将来公開するときは、持ち主の判断が要る: Pages の設定、GPL の部品のソース提供、著作権表示。[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)）
 - ゲストの fsync を flush につなぐ手段（v86 の改造が必要。現状は受け入れている。ARCHITECTURE.md 4.3）
 - v86 の `save_state` / `restore_state` への対応（M6）
 - ネットワークの残り: 🔬 TLS 付きのリレー（`wisps://` / `wss://`）、https のページからの動作、インターネット越しのリレー、Firefox / WebKit での動作（いずれも未確認）。
   公開リレーを運営するか（持ち主の判断。下の「ネットワーク」の注意）
 - チャンクの圧縮配信
+
+## ライセンス
+
+WasmBox 自身のコードは **GPL-3.0**（[LICENSE](./LICENSE)。持ち主の決定、2026-10-19）。`package.json` の `license` は `GPL-3.0-only`。
+
+- 「GPL-3.0」を、「このバージョンのみ」（`-only`）と読んだ。「それ以降のバージョンも許す」（`-or-later`）にしたいときは、持ち主が決めて、`package.json` とこの節を直す。
+- 著作権表示（`Copyright (C) 年 名前`）は、まだ入れていない（名前は持ち主が決める。GPL-3.0 の末尾にある、ファイルごとの表示も未実施）。
+- v86・xterm.js・Linux カーネル・busybox など、配るときに含まれる他者の部品は、それぞれのライセンスのまま。関係の整理は [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。

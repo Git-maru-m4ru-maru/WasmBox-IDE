@@ -318,6 +318,8 @@ interface Engine {
 | 2026-10-18 | NIC は **ne2k**（v86 の既定）。virtio も動くが、設定欄には出さない | どちらも通り、速度の差は 1 回ずつの測定では誤差の範囲（8 MiB が 4.4 秒 / 5.0 秒）。選ぶ理由がない |
 | 2026-10-18 | CI の net-smoke は、**外部に依存しないものは失敗、インターネットに依存するものは警告**にする | オフ・DHCP・runner への HTTP・8 MiB の転送が通るなら、ゲストのネットワークは動いている。DNS・HTTPS・Alpine の CDN・npm のレジストリは、外の事情で落ちうる |
 | 2026-10-18 | イメージに `wasmbox-net` と inittab の 1 行を足した | イメージが変わると manifest が変わり、以前の overlay は使えない（`ManifestMismatchError`。ストア層の仕様）。公開前なので、影響する利用者はいない |
+| 2026-10-19 | WasmBox 自身のライセンスは **GPL-3.0**（`package.json` は `GPL-3.0-only`） | 持ち主の決定。「GPL-3.0」を「このバージョンのみ」と読んだ（私の解釈）。`-or-later` にするかは持ち主が決める |
+| 2026-10-19 | **GitHub Pages での公開は一時的で、ソースコードを見せるだけ**。アプリ本体は Pages に載せない。CI は Pages 用の成果物を、`main` での手動実行のときしか作らない | 持ち主の方針。GPL の部品（カーネルなど）の再配布と、ソース提供の問題を、アプリを公開するときまで先送りできる。毎回の CI で 122 MiB を作らなくてもよくなる |
 
 ---
 
@@ -335,8 +337,10 @@ interface Engine {
 - ✅ **ネットワーク**: ゲストから外へ出る手段は、WISP リレーで実現できた（5.1）。
   - ❓ 公開リレーを運営するか（持ち主の判断。費用・悪用への対策・利用者の通信が見えること）。
   - 🔬 TLS 付きのリレー、https のページからの動作、インターネット越しの遅延、Firefox / WebKit は未確認。
-- ❓ **ライセンス**: WasmBox 自体のライセンス（`LICENSE` がない。**持ち主が決める**）と、配布物（v86、SeaBIOS、Linux カーネル、busybox など GPL を含む）の再配布の条件。
-  下書きと確認項目は [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。公開サイトを作る前に確認が要る。
+- ✅ **WasmBox 自体のライセンス**: GPL-3.0（持ち主の決定、2026-10-19。`LICENSE`、`package.json` は `GPL-3.0-only`）。
+  - ❓ 「以降のバージョンも許す」（`-or-later`）にするか、著作権表示の名前をどうするかは、持ち主が決める。
+- ❓ **配布物の再配布の条件**（v86、SeaBIOS、Linux カーネル、busybox など GPL を含む）: 下書きと確認項目は [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+  Pages にアプリを載せない方針（2026-10-19）の間は、配布が起きない。アプリを公開するときに、GPL の部品のソース提供の方法を決めて、確認する。
 - ⚠️ **Node.js の実用速度**: 起動に約 2 秒（6 章）。重い処理は遅い。許容できない用途が出たら、ホストのJSエンジンを使う案など別の手段を検討する。
 - ⚠️ **クロスブラウザ**: `poc/selftest.html`（Storage 層とアダプタ。v86 なし）は、Chromium 156・Firefox 157・WebKit 27.2（Playwright 版。**Safari そのものではない**）の CI で 22 件すべて成功（2026-10-17）。
   🔬 **未確認**: v86 + Alpine の起動（Chromium のみ確認）、実際の Safari、モバイル、Windows / macOS、IndexedDB の容量上限や `persist()` の挙動（ブラウザごとに違う）、容量不足のときのエラー。

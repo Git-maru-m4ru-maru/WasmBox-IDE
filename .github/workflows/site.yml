@@ -1,7 +1,9 @@
 name: Site (terminal app)
 
 # 公開用のサイト（site/）をビルドし、実ブラウザ + v86 + Alpine で操作して確かめる。
-# 公開（GitHub Pages への deploy）は、リポジトリの持ち主が Pages を有効にしたうえで、main で手動実行したときだけ行う。
+# 方針（持ち主の決定、2026-10-19）: GitHub Pages での公開は一時的で、ソースコードを見せるだけ。アプリ本体は Pages に載せない。
+# そのため、Pages 用の成果物（カーネルなどを含む）は、main での手動実行のときしか作らない。
+# 将来アプリを公開するときは、持ち主が Pages を有効にしたうえで、main で手動実行する（deploy ジョブ）。
 #   Settings → Pages → Build and deployment → Source を「GitHub Actions」にする。
 
 on:
@@ -14,6 +16,7 @@ on:
       - "tools/prepare-vendor.sh"
       - "tools/app-smoke.mjs"
       - "tools/net-smoke.mjs"
+      - "tools/step-judge.ts"
       - "tools/smoke-lib.mjs"
       - "tools/serve.ts"
       - "tools/chunk-image.ts"
@@ -32,6 +35,7 @@ on:
       - "tools/prepare-vendor.sh"
       - "tools/app-smoke.mjs"
       - "tools/net-smoke.mjs"
+      - "tools/step-judge.ts"
       - "tools/smoke-lib.mjs"
       - "tools/serve.ts"
       - "tools/chunk-image.ts"
@@ -94,6 +98,7 @@ jobs:
         timeout-minutes: 25
         run: node tools/net-smoke.mjs
       - name: Upload site for GitHub Pages
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v4
         with:
           path: site
