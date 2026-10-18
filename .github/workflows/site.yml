@@ -86,11 +86,11 @@ jobs:
           exit 1
       - name: App smoke test (boot, type, Node.js, save, reload, reset)
         run: node tools/app-smoke.mjs
-      # ネットワークは、カーネルの NIC ドライバ・v86・WISP サーバーに依存し、事前には分からないことが多い。
-      # このステップは「測って annotation に残す」ためのもの（オフの経路だけ厳密に検査する）。
-      # 結果が出そろって、通ると分かったものが決まったら、continue-on-error を外して検査を厳しくする。
-      - name: Network smoke test (off / WISP relay / fetch; measures and records)
-        continue-on-error: true
+      # ネットワーク。2026-10-18 の実測で、通ると分かったものを検査にした（ARCHITECTURE.md 5.1）:
+      #   失敗にする: オフ（lo だけ）、WISP リレー経由の DHCP・runner への HTTP・8 MiB の転送（ne2k と virtio）、fetch 方式の localhost:N
+      #   警告にとどめる: インターネットに依存するもの（DNS・HTTPS・apk・Python・Node.js・npm）。外の事情で落ちうるため。
+      # 結果（時間・出力）は、どちらの場合も annotation に残す。
+      - name: Network smoke test (off / WISP relay / fetch)
         timeout-minutes: 25
         run: node tools/net-smoke.mjs
       - name: Upload site for GitHub Pages

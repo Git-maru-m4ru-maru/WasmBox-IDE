@@ -21,6 +21,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { failure, notice } from "./smoke-lib.mjs";
+import { judgeStep } from "./step-judge.ts";
 
 const SITE = process.env.WASMBOX_APP_URL_BASE ?? "http://127.0.0.1:8080/index.html";
 const WISP_PORT = 5001;
@@ -174,7 +175,7 @@ function makeGuest(page, steps) {
     );
   }
 
-  return async function run(name, command, { timeoutMs = 60_000, keep = 140 } = {}) {
+  return async function run(name, command, { timeoutMs = 60_000, keep = 140, expect } = {}) {
     if (Date.now() > DEADLINE) {
       steps.push({ name, skipped: "全体の時間切れ" });
       return { rc: "skipped", out: "" };
@@ -212,6 +213,8 @@ function makeGuest(page, steps) {
       out = lines.slice(begin + 1, end).join("\n").trimEnd();
     }
     const step = { name, command: truncate(command, 160), rc, ms: Date.now() - startedAt, out: truncate(out, keep) };
+    // 期待を渡されたステップは、ここで判定して記録する（最後にまとめて、error は失敗・warn は警告にする）
+    if (expect) step.verdict = judgeStep({ rc, out }, expect);
     steps.push(step);
     console.log(`  [${name}] rc=${rc} ${step.ms}ms ${truncate(out.replace(/\n/g, " ⏎ "), 160)}`);
     if (rc === "timeout") await recoverShell();
@@ -261,11 +264,14 @@ const NET_DEVICES = 'for d in /sys/class/net/*; do echo "${d##*/} type=$(cat $d/
 
 /** 共通の、NIC・DHCP・経路・DNS・時刻の確認（探索） */
 async function inspectNetwork(run) {
-  await run("デバイス（名前 type）", NET_DEVICES);
-  await run("wasmbox-net のログ", "grep -vE 'broadcasting|started|deconfig' /run/wasmbox-net.log", { keep: 420 });
+  await run("デバイス（名前 type）", NET_DEVICES, { expect: { match: /^eth0 type=1$/m } });
+  await run("wasmbox-net のログ", "grep -vE 'broadcasting|started|deconfig' /run/wasmbox-net.log", { keep: 420, expect: { match: /DHCP 成功: eth0/ } });
   await run("dmesg（NIC 関連）", "dmesg | grep -iE '8390|ne2k|ne2000|virtio_net|virtio-pci|eth0' | head -n 6", { keep: 400 });
-  await run("アドレスと経路", "ip -4 addr show eth0 | grep -E 'inet|state'; ip route", { keep: 300 });
-  await run("resolv.conf と時刻", "ls -l /etc/resolv.conf; cat /etc/resolv.conf; date -u", { keep: 500 });
+  await run("アドレスと経路", "ip -4 addr show eth0 | grep -E 'inet|state'; ip route", {
+    keep: 300,
+    expect: { match: /inet \d+\.\d+\.\d+\.\d+\/\d+[\s\S]*default via \d+\.\d+\.\d+\.\d+/ },
+  });
+  await run("resolv.conf と時刻", "ls -l /etc/resolv.conf; cat /etc/resolv.conf; date -u", { keep: 500, expect: { match: /^nameserver \d/m } });
 }
 
 const browser = await chromium.launch({ headless: true });
@@ -307,29 +313,41 @@ try {
   // --- relay-ne2k / relay-virtio: WISP（同じ内容を、NIC の種類を変えて測る）---
   const relayScenario = async (run) => {
     await inspectNetwork(run);
-    await run("コマンドライン", "cat /proc/cmdline | grep -o 'wasmbox.net=on'");
+    await run("コマンドライン", "cat /proc/cmdline | grep -o 'wasmbox.net=on'", { expect: { match: /wasmbox\.net=on/ } });
+    // runner 上の HTTP サーバー（WasmBox の外の事情に左右されない）への通信は、必ず通るべきもの → error
     if (TARGET_HOST) {
-      await run("runner の HTTP（IP 指定）", `wget -T 15 -qO- http://${TARGET_HOST}:${TARGET_PORT}/hello`, { timeoutMs: 40_000 });
-      await run("8 MiB の転送（バイト数）", `wget -T 60 -qO- http://${TARGET_HOST}:${TARGET_PORT}/big/8388608 | wc -c`, { timeoutMs: 120_000 });
+      await run("runner の HTTP（IP 指定）", `wget -T 15 -qO- http://${TARGET_HOST}:${TARGET_PORT}/hello`, {
+        timeoutMs: 40_000,
+        expect: { match: /^hello-from-runner$/ },
+      });
+      await run("8 MiB の転送（バイト数）", `wget -T 60 -qO- http://${TARGET_HOST}:${TARGET_PORT}/big/8388608 | wc -c`, {
+        timeoutMs: 120_000,
+        expect: { match: /^8388608$/ },
+      });
     }
-    await run("DNS（nslookup）", "nslookup example.com | grep -c Address", { timeoutMs: 30_000 });
-    await run("インターネットの HTTP", "wget -T 20 -qO- http://example.com/ | head -c 60", { timeoutMs: 45_000 });
-    await run("インターネットの HTTPS（wget）", "wget -T 30 -qO- https://example.com/ | head -c 60", { timeoutMs: 60_000 });
-    await run("apk update", "apk update | tail -n 2", { timeoutMs: 300_000, keep: 200 });
-    await run("apk add jq", "apk add --no-cache jq 2>&1 | tail -n 2 && jq --version", { timeoutMs: 300_000, keep: 200 });
+    // ここから先は、インターネット上のサーバー（DoH・example.com・Alpine の CDN・npm のレジストリ）に依存する。
+    // 外の事情で落ちうるので、外れても警告にとどめる。ここが落ちて、上の 2 つが通るなら、WasmBox の外の問題を疑う。
+    const external = { level: "warn" };
+    await run("DNS（nslookup）", "nslookup example.com | grep -c Address", { timeoutMs: 30_000, expect: { ...external, match: /^([2-9]|\d{2,})$/ } });
+    await run("インターネットの HTTP", "wget -T 20 -qO- http://example.com/ | head -c 60", { timeoutMs: 45_000, expect: { ...external, match: /<html/i } });
+    await run("インターネットの HTTPS（wget）", "wget -T 30 -qO- https://example.com/ | head -c 60", { timeoutMs: 60_000, expect: { ...external, match: /<html/i } });
+    await run("apk update", "apk update | tail -n 2", { timeoutMs: 300_000, keep: 200, expect: { ...external, match: /OK: \d+ distinct packages available/ } });
+    await run("apk add jq", "apk add --no-cache jq 2>&1 | tail -n 2 && jq --version", { timeoutMs: 300_000, keep: 200, expect: { ...external, match: /jq-\d/ } });
     await run(
       "Python の HTTPS",
       `python3 -c "import urllib.request as u; print(u.urlopen('https://example.com/', timeout=60).status)"`,
-      { timeoutMs: 120_000, keep: 200 },
+      { timeoutMs: 120_000, keep: 200, expect: { ...external, match: /^200$/ } },
     );
     await run("Node.js の HTTPS", `node -e "fetch('https://example.com/').then(r=>console.log(r.status),e=>{console.log('ERR',e.cause&&e.cause.code||e.message)})"`, {
       timeoutMs: 150_000,
+      expect: { ...external, match: /^200$/ },
     });
-    await run("apk add npm", "apk add --no-cache npm 2>&1 | tail -n 1 && npm --version", { timeoutMs: 400_000, keep: 200 });
-    await run("npm view", "cd /tmp && npm view is-odd version", { timeoutMs: 400_000, keep: 200 });
+    await run("apk add npm", "apk add --no-cache npm 2>&1 | tail -n 1 && npm --version", { timeoutMs: 400_000, keep: 200, expect: { ...external, match: /\d+\.\d+\.\d+$/ } });
+    await run("npm view", "cd /tmp && npm view is-odd version", { timeoutMs: 400_000, keep: 200, expect: { ...external, match: /^\d+\.\d+\.\d+$/ } });
     await run("npm install", "cd /tmp && mkdir -p npmtest && cd npmtest && npm install is-odd 2>&1 | tail -n 2 && node -e \"console.log(require('is-odd')(3))\"", {
       timeoutMs: 400_000,
       keep: 200,
+      expect: { ...external, match: /^true$/m },
     });
   };
   await scenario(browser, "relay-ne2k", `net=relay&relay=wisp://127.0.0.1:${WISP_PORT}/&nic=ne2k`, relayScenario);
@@ -339,7 +357,10 @@ try {
   await scenario(browser, "fetch", "net=fetch", async (run) => {
     await inspectNetwork(run);
     // N.external は、ブラウザから見た localhost:N への別名（v86 の fetch 方式）。runner 上の HTTP サーバーは CORS を許可している
-    await run("localhost:N（N.external）", `wget -T 15 -qO- http://${TARGET_PORT}.external/hello`, { timeoutMs: 40_000 });
+    await run("localhost:N（N.external）", `wget -T 15 -qO- http://${TARGET_PORT}.external/hello`, {
+      timeoutMs: 40_000,
+      expect: { match: /^hello-from-runner$/ },
+    });
     await run("インターネットの HTTP（CORS 次第）", "wget -T 20 -qO- http://example.com/ | head -c 160", { timeoutMs: 45_000 });
     await run("HTTPS は通らないはず", "wget -T 8 -qO- https://example.com/ | head -c 100", { timeoutMs: 40_000 });
   });
@@ -350,6 +371,23 @@ try {
 } finally {
   // annotation の message は 4 KB 前後で切れる（実測。バイト数か文字数かは未確認なので、安全側にバイト数で数える。日本語は 1 文字 3 バイト）。
   // シナリオごとに、短い 1 行 1 ステップの形にして、3000 バイトずつに分けて出す。
+  // 期待を外れたステップを、失敗（error）と警告（warn）として残す。シナリオ自体が失敗した（起動できないなど）のも、失敗にする（off は、上で報告済み）。
+  for (const result of results) {
+    if (result.error && result.name !== "off") {
+      exitCode = 1;
+      failure(`WasmBox net ${result.name} failure`, result.error + "\n" + (result.screenTail ?? ""));
+    }
+    for (const step of result.steps) {
+      if (!step.verdict) continue;
+      const message = `[${step.name}] ${step.verdict.reason}`;
+      if (step.verdict.level === "error") {
+        exitCode = 1;
+        failure(`WasmBox net ${result.name} 期待外れ`, message);
+      } else {
+        console.log(`::warning title=WasmBox net ${result.name} 警告::${message.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}`);
+      }
+    }
+  }
   for (const result of results) {
     const lines = [
       `boot=${result.bootSeconds}s${result.error ? " ERROR=" + result.error : ""}`,

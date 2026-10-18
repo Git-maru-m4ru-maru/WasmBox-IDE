@@ -7,6 +7,19 @@
 - ✅ 外付け initrd による直接ルート起動（`rdinit=/wasmbox-init` → `switch_root`）を 3 回連続で確認。`/proc/mounts` で `/dev/sda / ext4` になる。
 - ✅ Alpine 3.21 の上で Node.js v22.23.2 と Python 3.12.15 が動く。
 
+## ネットワークの初期化（`wasmbox-net`）
+
+`image/wasmbox-net`（イメージの `/usr/local/sbin/wasmbox-net`）が、busybox init の `::once:`（`image/inittab`）から、起動時に走る。
+
+- `lo` は、ネットワークの設定にかかわらず、いつも上げる（Node.js などが `127.0.0.1` を使うため）。
+- カーネルのコマンドラインに `wasmbox.net=on` があるときだけ、Ethernet の NIC（`/sys/class/net/*/type` が 1。`lo` や `sit0` などは除く）で、`udhcpc` による DHCP を試す。
+  v86 は、ネットワークがオフでも `eth0` を作る（CI で確認）。この印がないと、オフのときも、つながらない DHCP を試すことになる（`-t 5 -T 3` なので最大で約 15 秒。計算上の値で、実測はしていない）。
+- `wasmbox-udhcpc-script` が、アドレス・経路・`/run/resolv.conf` を設定する（`/etc/resolv.conf` は `/run/resolv.conf` へのリンク）。
+- 経過は `/run/wasmbox-net.log` に残る。シリアルコンソールには何も出さない。
+
+確認状況: ✅ シェルスクリプトとしての動作は、`test/image-net.test.ts`（偽の `/sys/class/net`・`ip`・`udhcpc` で。実装を壊す変異で検出を確認）。
+✅ 実際の v86 + Alpine で DHCP が取れ、`apk add` まで通ることは、CI の `tools/net-smoke.mjs`（2026-10-18）。
+
 ## ビルド
 
 必要なもの: BuildKit が使える Docker と、Node.js 22.18 以上。

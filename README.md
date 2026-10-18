@@ -3,8 +3,8 @@
 ブラウザ内で動く、WASM上の仮想Linux環境。設計は [ARCHITECTURE.md](./ARCHITECTURE.md) を参照。
 
 v86（x86 エミュレータ）の上で Alpine Linux（Node.js・Python 入り）が動き、ディスクは IndexedDB に永続化される。
-xterm.js のターミナルページ（`app/`）から使える。**M1〜M5 とターミナルアプリは実ブラウザで確認済み**（確認の内容と、確認していないことは「検証状況」を参照）。
-進み具合は ARCHITECTURE.md の 9 章。**公開サイトはまだ作っていない**（GitHub Pages の有効化とライセンスの確認は、リポジトリの持ち主の判断。[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)）。
+xterm.js のターミナルページ（`app/`）から使える。**M1〜M5・ターミナルアプリ・ネットワーク（既定はオフ）は実ブラウザで確認済み**（確認の内容と、確認していないことは「検証状況」を参照）。
+進み具合は ARCHITECTURE.md の 9 章。GitHub Pages はすでに有効（持ち主の設定）で、`https://maru-m4ru-maru.github.io/WasmBox/` には、この README を文書として表示するページが公開されている（2026-10-18 に確認。**アプリではない**）。デプロイの記録（`ref=claude/complete-wasmbox`）から、公開元は、この開発ブランチと見られる（Pages の設定は API が使えず、直接は読めていない）。アプリ本体の公開（`site.yml` の `deploy`）は、まだ行っていない。ライセンスの確認などは持ち主の判断（[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)）。
 AI エージェントや共同開発者向けのルールは [AGENTS.md](./AGENTS.md)。
 
 ## セットアップ
@@ -32,7 +32,9 @@ npm run site:serve           # http://127.0.0.1:8080/ を開く
 ```
 
 CI（`.github/workflows/site.yml`）が、同じ手順でビルドして実ブラウザで確かめる。
-公開（GitHub Pages）は、`site.yml` の `deploy` ジョブを、持ち主が Pages を有効にしたあと `main` で手動実行したときだけ動く。
+公開（GitHub Pages）は、`site.yml` の `deploy` ジョブを `main` で手動実行したときだけ動く。
+🔬 `deploy` ジョブは、Pages の公開元が「GitHub Actions」であることを前提にする。いまの Pages は、ブランチから直接公開しているように見えるので、
+アプリを公開するときは、持ち主が Pages の設定（Settings → Pages → Source）を変える必要がある（私は設定を変えていない。公式の手順は未確認）。
 
 ## 構成
 
@@ -46,6 +48,7 @@ CI（`.github/workflows/site.yml`）が、同じ手順でビルドして実ブ�
 | `src/storage/lock.ts` | Web Locks による複数タブの排他 |
 | `src/engine/v86-block-device.ts` | `BlockStore` を v86 のディスク（hda）として見せるアダプタ |
 | `src/engine/types.ts` / `src/engine/v86-engine.ts` | エンジンの差し替え口（`Engine`）と、v86 用の実装（`V86Engine`。シリアルをターミナルに使う） |
+| `src/engine/network.ts` / `app/network-setting.ts` | ネットワークの設定（`NetworkConfig` の検査と v86 の `net_device` への変換 / アプリの設定欄の保存・検査） |
 | `app/` | ターミナルアプリ本体（xterm.js、保存状態の表示、ディスクの初期化）。`npm run site:build` が `site/` にまとめる |
 | `image/` | Alpine（Node.js・Python 入り）の ext4 イメージのビルドと、外付け initrd（`/wasmbox-init`）。[image/README.md](./image/README.md) |
 | `poc/` | v86 に接続して起動するページ（`alpine.html`）と、v86 不要のブラウザ自己診断（`selftest.html`）。[poc/README.md](./poc/README.md) |
@@ -53,9 +56,66 @@ CI（`.github/workflows/site.yml`）が、同じ手順でビルドして実ブ�
 | `tools/make-initrd.ts` | 直接ルート起動用の外付け initrd を作る |
 | `tools/alpine-smoke.mjs` / `tools/persist-smoke.mjs` | 実ブラウザ（Playwright）+ v86 + Alpine の自動確認。起動・Node.js・Python と、永続化 |
 | `tools/app-smoke.mjs` | ターミナルアプリの自動確認（起動・入力・保存表示・再読み込み・初期化） |
+| `tools/net-smoke.mjs` / `tools/step-judge.ts` | ネットワークの自動確認（オフ / WISP リレー / fetch。WISP サーバーと通信先を runner 上で起動する）と、結果の判定 |
 | `tools/selftest-browsers.mjs` | `poc/selftest.html` を Chromium・Firefox・WebKit で実行する |
 | `tools/build-site.ts` / `tools/prepare-vendor.sh` | 公開用の `site/` の組み立てと、`poc/vendor/` の用意 |
 | `tools/serve.ts` | 開発用の静的サーバー（依存なし） |
+
+## ネットワーク（実験的。既定はオフ）
+
+アプリの「ネットワーク」欄で選ぶ。変えると、保存して再読み込みする（ディスクの内容は残る）。
+
+| 方式 | 通るもの | 必要なもの |
+|---|---|---|
+| オフ（既定） | ループバック（127.0.0.1）だけ | — |
+| ブラウザのみ（fetch） | ゲストの HTTP（80 番）だけ。相手が CORS を許可している場合のみ。`N.external` と書くと、ブラウザから見た `localhost:N` へ届く | なし |
+| リレー経由（WISP） | TCP 全般。HTTPS、`apk`、`pip`、`npm` も通る | WISP サーバー（リレー） |
+
+`apk add` や `npm install` が目的なら「リレー経由」を使う。**リレーは自分で用意する。既定のリレーは置いていない**
+（運営・費用・悪用への対策は、持ち主が決めること。ARCHITECTURE.md 5.1）。
+
+ローカルで試す（CI が使っているのと同じ起動方法）:
+
+```sh
+npm install --no-save --package-lock=false @mercuryworkshop/wisp-js@0.5.0
+node node_modules/@mercuryworkshop/wisp-js/src/bin/server_cli.mjs -H 127.0.0.1 -P 5001
+```
+
+`npm run site:serve` で `http://127.0.0.1:8080/` を開き、ネットワーク欄で「リレー経由」を選んで、URL に `wisp://127.0.0.1:5001/` を入れる。
+ゲストの中では、起動時に DHCP でアドレスを取る（`/run/wasmbox-net.log` に経過が残る）。そのあとは、ふつうに使える:
+
+```sh
+apk update && apk add jq
+```
+
+自分で公開したサイト（https）から使うときは、リレーを TLS で包み（リバースプロキシの後ろに置く）、`wisps://` か `wss://` の URL を入れる。
+https のページは、暗号化されない `ws://` / `wisp://` には接続できない（設定欄で断る）。🔬 TLS 付きのリレーは、まだ試していない。
+
+CI での実測（Chromium 156、v86 0.5、wisp-js 0.5.0。リレーは同じマシン上なので、遅延は実環境より小さい。2026-10-18）:
+
+| 操作 | 時間 |
+|---|---|
+| 8 MiB のダウンロード（`wget`） | 4.4 秒（ne2k）／ 5.0 秒（virtio） ≒ 1.6〜1.8 MiB/秒 |
+| `wget https://example.com/`（HTTP の同じ操作は 0.3 秒） | 3.6 秒 |
+| `apk update` ／ `apk add jq` | 約 10 秒 ／ 約 9 秒 |
+| `apk add npm`（Node.js の npm と依存） | 28〜30 秒 |
+| Python の `urllib` で HTTPS の GET ／ Node.js の `fetch` で HTTPS の GET | 11 秒 ／ 26 秒 |
+| `npm view is-odd version` ／ `npm install is-odd`（2 パッケージ） | 47〜51 秒 ／ 約 50 秒 |
+
+HTTPS が重いのは、TLS の処理を、エミュレートした CPU でやるためと考えている（原因は未検証）。ネットワークをオンにしても、シェルが使えるまでの時間は大きくは変わらない（オフ 7.3 秒、リレー 6.7〜6.8 秒、fetch 7.4 秒。1 回ずつの測定で、差は誤差の範囲と見ている）。
+
+注意:
+
+- ⚠️ **リレーの運営者には、ゲストの通信先（IP とポート）が見える。HTTP の中身も見える。** HTTPS は、ゲストの中で TLS を終えるので、中身はリレーに見えない。
+- ⚠️ **公開リレーは、誰でも使える踏み台（オープンプロキシ）になる。** 運営するなら、悪用への対策が要る。wisp-js は、ループバックとプライベート IP への接続を既定で拒否し
+  （`options.mjs` の既定値で確認。拒否の動作そのものは未検証）、ホスト・ポートの許可リストと、接続数の上限（`stream_limit_*`）を持つ。クライアント IP による制限は「未実装」と書かれている。
+  CI の WISP サーバーだけは、runner 上の通信先へ届けるために、ループバックとプライベート IP を許可している（公開用ではない）。
+- ⚠️ ネットワークをオンにすると、ゲストの中のプログラムは、リレーを通して外へ出られる。信頼できないコードを動かすときは、オフのままにする。
+- ⚠️ 名前の解決（DNS）は、v86 の内蔵の DNS が、ブラウザから DoH で行う（v86 のオプションの既定。リレーの通信先は IP アドレスで届いていた）。
+  🔬 問い合わせ先の DoH サーバーは確認していない。
+- ⚠️ 通るのは TCP だけと理解している（v86 の WISP）。UDP と ping（ICMP）は試していない。
+- リレーの URL は、利用者が欄に入れたものだけを使う（ブラウザの localStorage に保存）。リンクの `?relay=` などのパラメータは、自動テスト用の `?smoke=1` のときだけ効く。
+- NIC は ne2k（v86 の既定）。virtio も動くことを確認した。設定欄には出していない。
 
 ## 使い方
 
@@ -123,10 +183,14 @@ node tools/chunk-image.ts rootfs.img out/ --chunk-size=262144 --image-id=alpine-
   Chromium 156・Firefox 157・WebKit 27.2 で 22 件すべて成功。**WebKit は Playwright の WebKit で、Safari そのものではない。**
 - ✅ **容量不足の対応**（`test/quota.test.ts`）: overlay の保存が `QuotaExceededError` で断られたら、base キャッシュを捨てて 1 回だけやり直す。overlay は捨てない。
   実装をわざと壊した 4 通りで、テストが落ちることを確認済み。
-- ⚠️ **未確認**: 実際の Safari・モバイル・Windows / macOS。v86 + Alpine の起動は Chromium のみ。実ブラウザで容量不足になったときの挙動。
-  貼り付け・実際の IME 入力・`vim` など画面全体を使うプログラム。2 つ目のタブを開いたときのアプリの表示。GitHub Pages 上での動作（Pages 未有効化）。
+- ✅ **ネットワーク**（`tools/net-smoke.mjs`、CI の Chromium 156 + v86 0.5 + Alpine + wisp-js 0.5.0。2026-10-18。詳しくは「ネットワーク」）:
+  WISP リレー経由で、DHCP・DNS・HTTP・HTTPS・`apk update` / `apk add`・Python と Node.js の HTTPS・`npm view` / `npm install` が通る（ne2k と virtio の両方）。
+  オフのときは lo だけ（外へは出ない）。fetch 方式は、HTTP の 80 番だけで、CORS を許可しない相手には届かない。
+  設定の検査・保存・復元は、ユニットテストと、偽の v86 を使った実ブラウザでの確認（変異で検出を確認）。
+- ⚠️ **未確認**: 実際の Safari・モバイル・Windows / macOS。v86 + Alpine の起動は Chromium のみ（ネットワークも Chromium のみ）。実ブラウザで容量不足になったときの挙動。
+  貼り付け・実際の IME 入力・`vim` など画面全体を使うプログラム。2 つ目のタブを開いたときのアプリの表示。GitHub Pages 上での**アプリ**の動作（Pages にはアプリを公開していない）。
   実物の xterm.js の見た目（画面のレイアウトは、偽のターミナルを使ってローカルで目視した。xterm.js の描画そのものは、人の目では見ていない）。
-- ⚠️ **ターミナルの制約**: 大きさは 80×24 固定。ゲストから見た `TERM` は `vt102`（実測）。ネットワークにはつながらない。
+- ⚠️ **ターミナルの制約**: 大きさは 80×24 固定。ゲストから見た `TERM` は `vt102`（実測）。ネットワークは既定でオフ（「ネットワーク」を参照）。
 - ⚠️ **性能は、CI のランナー上の値**。起動してシェルが使えるまで 5.1〜6.6 秒、`node -e "console.log(1)"` が 1.9〜2.6 秒、
   `python3 -c "print(1)"` が 1.5〜2.5 秒（ゲストの `time`。RAM 256 MiB）。利用者のマシンでは変わる。チャンクサイズ 256 KiB の妥当性は未検証。
 
@@ -137,5 +201,6 @@ node tools/chunk-image.ts rootfs.img out/ --chunk-size=262144 --image-id=alpine-
 - 公開（持ち主の判断が要る: Pages の有効化、`LICENSE`、GPL の部品のソース提供。[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)）
 - ゲストの fsync を flush につなぐ手段（v86 の改造が必要。現状は受け入れている。ARCHITECTURE.md 4.3）
 - v86 の `save_state` / `restore_state` への対応（M6）
-- ゲストからのネットワーク（M6）
+- ネットワークの残り: 🔬 TLS 付きのリレー（`wisps://` / `wss://`）、https のページからの動作、インターネット越しのリレー、Firefox / WebKit での動作（いずれも未確認）。
+  公開リレーを運営するか（持ち主の判断。下の「ネットワーク」の注意）
 - チャンクの圧縮配信

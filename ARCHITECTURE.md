@@ -1,6 +1,6 @@
 # WasmBox アーキテクチャ
 
-> **Status:** Draft v0.4（2026-10-17）— M1〜M5 と、ターミナルアプリ（`app/`）を実機（v86 + Alpine、CI の Chromium）で確認済み。残りは、持ち主の判断が要る公開の手続き（9 章・11 章）
+> **Status:** Draft v0.5（2026-10-18）— M1〜M5、ターミナルアプリ（`app/`）、ネットワーク（5.1）を実機（v86 + Alpine、CI の Chromium）で確認済み。残りは、持ち主の判断が要る公開の手続き（9 章・11 章）
 > このドキュメントは「いま何が決まっていて、何が未決か」を共有するためのもの。
 > 開発者が増えても、AIが入れ替わっても、これを読めば追いつける状態を保つ。
 
@@ -205,6 +205,33 @@ interface Engine {
   - ライセンスは Apache 2.0。ただし生成物には Bochs などが含まれる。
 - Node.js は v86 で動いたため、container2wasm への切り替えは今のところ不要。🔬 予備案として残す。
 
+### 5.1 ネットワーク（M6.1。2026-10-18）
+
+- ✅ **既定はオフ**。利用者がアプリの「ネットワーク」欄で選ぶ（ブラウザの localStorage、キーは `wasmbox:network`）。v86 は起動のときにしか NIC を設定できないので、変えたら保存して再読み込みする。
+- ✅ **方式は 2 つ**（`src/engine/network.ts` が `NetworkConfig` を検査して、v86 0.5 の `net_device` に変換する。オプション名は、実物の libv86.js で確認した）:
+  - **リレー経由**（`relay_url: "wisp://…"` / `"wisps://…"`。`ws://` / `wss://` の素の WebSocket リレーも設定できるが、動作は確かめていない）。TCP 全般が通る。HTTPS は、ゲストの中で TLS を終える。
+  - **ブラウザのみ**（`relay_url: "fetch"`）。ブラウザの `fetch` で、ゲストの HTTP（80 番）だけを中継する。サーバーは要らない。
+- ✅ **CI の実ブラウザで確認した**（`tools/net-smoke.mjs`。Chromium 156、v86 0.5、wisp-js 0.5.0。runner 上で WISP サーバーと HTTP の通信先を起動。リレーは同じマシン上）:
+  - リレー経由（ne2k と virtio の両方）: DHCP、DNS、runner への HTTP、8 MiB の転送、インターネットの HTTP と HTTPS、`apk update` / `apk add jq` / `apk add npm`、
+    Python（`urllib`）と Node.js（`fetch`）の HTTPS、`npm view`、`npm install`（2 パッケージ）が成功した。時間は README の「ネットワーク」の表。
+  - ブラウザのみ: `N.external`（ブラウザから見た `localhost:N`）の HTTP は通る。`http://example.com/` は、ブラウザが CORS で止めて、ゲストには `502 Fetch Error` が返る。
+    HTTPS は `Connection refused`。つまり **fetch 方式は、HTTP だけの、CORS を許可する相手に限った機能で、パッケージの導入には使えない**。
+  - オフ: lo だけが上がる。外への通信は `bad address`。`Node.js` のループバック通信は動く。
+- **ゲスト側**（`image/wasmbox-net`。busybox init の `::once:` で起動）:
+  - lo は、設定にかかわらず、いつも上げる。
+  - v86 は、**ネットワークがオフでも NIC（`eth0`、type=1）を作る**（実測）。つながる先がないので DHCP は失敗する（`udhcpc -t 5 -T 3` なので、待つのは最大で約 15 秒。この値は設定からの計算で、実測はしていない）。そこで、アプリがカーネルのコマンドラインに `wasmbox.net=on` を足したときだけ DHCP を試す。
+  - NIC は `/sys/class/net/*/type` が 1（Ethernet）のものだけ。カーネルが作る `sit0` などのトンネルは、NIC として扱わない（`image/README.md`、`test/image-net.test.ts`）。
+  - アドレスは v86 の内蔵の DHCP が出す（実測で 192.168.86.100/24、ゲートウェイと DNS は 192.168.86.1）。`/etc/resolv.conf` は `/run/resolv.conf` へのリンクで、ディスクには書かない。
+  - ゲストの時計は合っていた（TLS の検証が通った）。
+  - カーネルには ne2k のドライバがある（`ne2k-pci … RTL-8029(AS)`）。virtio でも `eth0` ができて通信できた（`dmesg` に、絞り込みの語に当たる行が出ず、ドライバ名は未確認）。
+- **安全の考え方**:
+  - リレーの URL は、利用者が欄に入れたものだけを使う。URL パラメータの `net` / `relay` / `nic` は、自動テスト用の `?smoke=1` のときだけ効く（リンクで通信先を差し替えられないように。`test/network-setting.test.ts` と、偽の v86 を使った実ブラウザでの確認）。
+  - https のページは、暗号化されない `ws://` / `wisp://` に接続できない。設定欄で断り、使えない設定で起動するときは、オフで起動して理由を表示する。
+  - リレーの運営者には、通信先（IP とポート）と、HTTP の中身が見える。公開リレーは踏み台になりうる。wisp-js は、ループバックとプライベート IP を既定で拒否する（`options.mjs` の既定値で確認。動作は未検証）。
+  - 名前の解決は、ブラウザが DoH で行う（v86 の既定と理解している。CI のリレーのログには、IP アドレスへの接続しか出なかった）。🔬 問い合わせ先のサーバーは未確認。
+- 🔬 **未確認**: `wisps://` / `wss://`（TLS 付き）のリレー、https のページからの動作（fetch 方式の mixed content を含む）、インターネット越しのリレー（遅延）、Firefox / WebKit、UDP と ICMP、virtio のドライバ名。
+- ❓ **持ち主が決めること**: 公開リレーを運営するか（費用・悪用への対策・利用者の通信が見えること）。運営しないなら、利用者が自分でリレーを用意する前提のまま（README の手順）。
+
 ---
 
 ## 6. Image（Python / Node のデフォルト同梱）
@@ -257,7 +284,8 @@ interface Engine {
 | M4 ✅ | **Python 同梱** | 達成（2026-10-15）。`python3 -c "print(1)"` が動く（Python 3.12.15） |
 | M5 ✅ | **Node.js 同梱＋性能計測** | 達成（2026-10-15）。`node -e "console.log(1)"` が動く（v22.23.2）。起動時間とメモリは 6 章・7 章に記録 |
 | M5.1 ✅ | **ターミナルアプリと公開用サイトの組み立て**（`app/`、`tools/build-site.ts`、`.github/workflows/site.yml`） | 達成（2026-10-17）。xterm.js のページから、起動 → 入力 → Node.js 実行 → 「保存済み」表示 → 再読み込みしても残る → 「ディスクを初期化」で消える、までを CI の実ブラウザ（v86 + Alpine）で確認。シェルが使えるまで 7.3 秒（初回）／6.4 秒（再読み込み後）／5.7 秒（初期化後）。サイトは 122 MiB（429 チャンク）。**GitHub Pages への公開は未実施**（持ち主の操作が要る。11 章） |
-| M6 | （任意）ネットワーク、スナップショットによる高速起動 | — |
+| M6.1 ✅ | **ネットワーク**（`src/engine/network.ts`、`app/network-setting.ts`、`image/wasmbox-net`、`tools/net-smoke.mjs`） | 達成（2026-10-18）。WISP リレー経由で、DHCP・DNS・HTTPS・`apk add`・Python と Node.js の HTTPS・`npm install` が、CI の実ブラウザで通る（5.1）。既定はオフ。未確認: TLS 付きのリレー、https のページから、Firefox / WebKit |
+| M6.2 | （任意）スナップショット（`save_state` / `restore_state`）による高速起動 | — |
 
 ---
 
@@ -283,6 +311,13 @@ interface Engine {
 | 2026-10-16 | 容量不足（`QuotaExceededError`）のとき、**base キャッシュを捨てて 1 回だけやり直す**。overlay は捨てない | overlay は利用者のデータで、base はサーバーから取り直せる。やり直しても失敗するなら、エラーを呼び出し元に伝える（4.5） |
 | 2026-10-17 | サイトの公開（GitHub Pages への deploy）は、**手動実行（`workflow_dispatch`）かつ `main` のときだけ** | Pages の有効化、ライセンス、GPL の部品のソース提供は、持ち主が決めること（`THIRD_PARTY_NOTICES.md`）。ビルドと実ブラウザでの確認は、毎回の push で行う |
 | 2026-10-17 | 自己診断（`poc/selftest.html`）を、CI で Chromium・Firefox・WebKit（Playwright 版）に対して実行する | クロスブラウザの確認を、手作業から外す。初回は 3 つとも 22 件成功。Firefox / WebKit の失敗は、当面は警告にとどめる |
+| 2026-10-18 | ネットワークは**既定でオフ**。利用者が欄で選び、変更は保存して再読み込みで反映する | v86 は起動のときにしか NIC を設定できない。信頼できないコードを動かすときの安全側（5.1） |
+| 2026-10-18 | 実用の方式は **WISP リレー**。fetch 方式は、HTTP の 80 番だけの限定的な機能として残す | 実測: fetch 方式は、CORS を許可しない相手に届かず（502）、HTTPS は通らない。WISP なら、`apk` / `pip` / `npm` が通った |
+| 2026-10-18 | **既定のリレーは置かない**。URL は利用者が入力する。URL パラメータでの指定は `?smoke=1` のときだけ | 公開リレーの運営・費用・悪用への対策は、持ち主の判断。リンクで通信先を差し替えられないようにする |
+| 2026-10-18 | ネットワークの有効 / 無効は、カーネルのコマンドライン（`wasmbox.net=on`）でゲストに伝える | v86 はオフでも NIC を作る（実測）ので、ゲストだけでは区別できず、オフのときも、失敗する DHCP を試すことになる（最大で約 15 秒の計算。実測はしていない） |
+| 2026-10-18 | NIC は **ne2k**（v86 の既定）。virtio も動くが、設定欄には出さない | どちらも通り、速度の差は 1 回ずつの測定では誤差の範囲（8 MiB が 4.4 秒 / 5.0 秒）。選ぶ理由がない |
+| 2026-10-18 | CI の net-smoke は、**外部に依存しないものは失敗、インターネットに依存するものは警告**にする | オフ・DHCP・runner への HTTP・8 MiB の転送が通るなら、ゲストのネットワークは動いている。DNS・HTTPS・Alpine の CDN・npm のレジストリは、外の事情で落ちうる |
+| 2026-10-18 | イメージに `wasmbox-net` と inittab の 1 行を足した | イメージが変わると manifest が変わり、以前の overlay は使えない（`ManifestMismatchError`。ストア層の仕様）。公開前なので、影響する利用者はいない |
 
 ---
 
@@ -291,10 +326,15 @@ interface Engine {
 - ✅ **エンジン選定**: v86 に確定（5 章）。container2wasm は 🔬 予備案。
 - ❓ **イメージのホスティング**:
   - ✅ チャンクごとに別ファイル（256 KiB）にする方式を採用。サイト全体は 122 MiB（429 チャンク）で、1 ファイルが 100 MB を超えない。COOP/COEP ヘッダは要らない（8 章）。
-  - 🔬 GitHub Pages の制限（サイト 1 GB、1 ファイル 100 MB）は、公式の情報を私が読んだものではなく、理解にもとづく。実際の Pages 上での動作は**未確認**（Pages が有効でない）。
+  - 🔬 GitHub Pages の制限（サイト 1 GB、1 ファイル 100 MB）は、公式の情報を私が読んだものではなく、理解にもとづく。**アプリ**の Pages 上での動作は未確認（まだ公開していない）。
+  - GitHub Pages は、持ち主がすでに有効にしている。いま公開されているのは、README を文書として表示するページ（`https://maru-m4ru-maru.github.io/WasmBox/`。2026-10-18 に確認）。
+    デプロイの記録の `ref` が開発ブランチ（`claude/complete-wasmbox`）なので、公開元はこのブランチと見られる（設定そのものは API が使えず、読めていない）。
+    つまり、このブランチの README の変更は、そのまま公開される。`site.yml` の `deploy` は、公開元が「GitHub Actions」であることを前提にするので、アプリの公開には、持ち主が Pages の設定を変える必要がある（🔬 公式の手順は未確認）。
   - 外部の静的ホスト / CDN にするかは、持ち主の判断。
 - ✅ **イメージのビルドパイプライン**: `image/build.sh`（Dockerfile で Alpine i386 + nodejs + python3 → `mke2fs` で ext4 → `tools/chunk-image.ts` でチャンク＋マニフェスト）。
-- ❓ **ネットワーク**: ゲストから外部へ出る手段（WebSocketプロキシなど）を提供するか。`apk` や `pip` / `npm` の利用に影響する。
+- ✅ **ネットワーク**: ゲストから外へ出る手段は、WISP リレーで実現できた（5.1）。
+  - ❓ 公開リレーを運営するか（持ち主の判断。費用・悪用への対策・利用者の通信が見えること）。
+  - 🔬 TLS 付きのリレー、https のページからの動作、インターネット越しの遅延、Firefox / WebKit は未確認。
 - ❓ **ライセンス**: WasmBox 自体のライセンス（`LICENSE` がない。**持ち主が決める**）と、配布物（v86、SeaBIOS、Linux カーネル、busybox など GPL を含む）の再配布の条件。
   下書きと確認項目は [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。公開サイトを作る前に確認が要る。
 - ⚠️ **Node.js の実用速度**: 起動に約 2 秒（6 章）。重い処理は遅い。許容できない用途が出たら、ホストのJSエンジンを使う案など別の手段を検討する。
