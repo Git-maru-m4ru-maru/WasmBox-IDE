@@ -2,7 +2,7 @@
   "name": "wasmbox",
   "version": "0.0.1",
   "private": true,
-  "license": "GPL-3.0-only",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "description": "ブラウザ内で動くWASM仮想Linux環境",
   "engines": {

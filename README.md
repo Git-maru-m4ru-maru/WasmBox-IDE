@@ -209,8 +209,25 @@ node tools/chunk-image.ts rootfs.img out/ --chunk-size=262144 --image-id=alpine-
 
 ## ライセンス
 
-WasmBox 自身のコードは **GPL-3.0**（[LICENSE](./LICENSE)。持ち主の決定、2026-10-19）。`package.json` の `license` は `GPL-3.0-only`。
+WasmBox 自身のコードは **GPL-3.0 の「以降のバージョンも許す」形（GPL-3.0-or-later）**（[LICENSE](./LICENSE)。持ち主の決定、2026-10-19）。
+`package.json` の `license` は `GPL-3.0-or-later`。著作権表示（`Copyright (C) 年 名前`）は、持ち主の方針で入れない。
 
-- 「GPL-3.0」を、「このバージョンのみ」（`-only`）と読んだ。「それ以降のバージョンも許す」（`-or-later`）にしたいときは、持ち主が決めて、`package.json` とこの節を直す。
-- 著作権表示（`Copyright (C) 年 名前`）は、まだ入れていない（名前は持ち主が決める。GPL-3.0 の末尾にある、ファイルごとの表示も未実施）。
+許諾の文面（GPL-3.0 の末尾の「適用のしかた」にある標準の文面。著作権の行は入れない。「以降のバージョンも許す」という意思は、ここで示す）:
+
+```text
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+```
+
 - v86・xterm.js・Linux カーネル・busybox など、配るときに含まれる他者の部品は、それぞれのライセンスのまま。関係の整理は [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+- ファイルごとの許諾の表示（`SPDX-License-Identifier` など）は、まだ入れていない。
