@@ -20,3 +20,61 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run poc:build
+
+  # ネットワーク用のリレー（tools/relay.mjs）。wisp-js は WasmBox の依存パッケージではないので、package.json には入れず、
+  # このジョブのためだけに --no-save で入れる。実物の wisp-js に対して、接続先のフィルタ・Origin・ポート・UDP の制限を確かめる。
+  relay:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save --package-lock=false @mercuryworkshop/wisp-js@0.5.0
+      - run: node --test test/relay.integration.test.ts test/relay-policy.test.ts test/relay-check-lib.test.ts
+
+  # docs/relay.md の Docker の手順（権限を絞った指定のまま）で、イメージを作って起動し、フィルタを外から確かめる。
+  relay-docker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: イメージを作る
+        run: docker build -f tools/relay/Dockerfile -t wasmbox-relay .
+      - name: 起動する（docs/relay.md の指定）
+        run: |
+          docker run -d --name wasmbox-relay -p 127.0.0.1:5001:5001 \
+            --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 256 --memory 256m \
+            wasmbox-relay --origin http://localhost:8080
+          # 公開したポートは、コンテナの中のリレーが起動する前から、Docker が接続を受け付ける。
+          # TCP がつながるかではなく、リレーが HTTP に答える（WISP 以外は 404）まで待つ。
+          ready=0
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5001/ || true)
+            if [ "$code" = "404" ]; then ready=1; break; fi
+            sleep 1
+          done
+          docker logs wasmbox-relay
+          if [ "$ready" != 1 ]; then echo "リレーが起動しません"; exit 1; fi
+      - name: フィルタを検査する（必須の項目がすべて断られること）
+        run: |
+          set +e
+          node tools/relay-check.mjs wisp://127.0.0.1:5001/ > relay-check.txt 2>&1
+          rc=$?
+          cat relay-check.txt
+          # 結果を注釈にも残す（失敗の理由を、ログを開かずに読めるように。✅ 以外の行だけ）
+          msg=$(grep -v '^✅' relay-check.txt | head -c 3500 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+          echo "::notice title=relay-check (exit $rc)::$msg"
+          exit $rc
+      - name: コンテナのログ
+        if: always()
+        run: |
+          docker logs wasmbox-relay > relay-container.log 2>&1
+          tail -40 relay-container.log
+          msg=$(tail -c 3000 relay-container.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+          echo "::notice title=relay コンテナのログ::$msg"
+          docker rm -f wasmbox-relay

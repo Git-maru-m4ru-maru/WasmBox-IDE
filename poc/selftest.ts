@@ -8,7 +8,7 @@
  * 結果は画面に表示され、window.__selftest にも入る（自動テスト用）。
  */
 import { V86BlockDevice } from "../src/engine/v86-block-device.ts";
-import { ChunkedBlockStore, HttpChunkSource, IdbKV, sha256Hex } from "../src/storage/index.ts";
+import { ChunkedBlockStore, HttpChunkSource, IdbKV, InstanceLockedError, acquireInstanceLock, sha256Hex } from "../src/storage/index.ts";
 import type { ChunkSource, Manifest } from "../src/storage/index.ts";
 
 const SECTOR = 512;
@@ -116,6 +116,33 @@ async function environment(): Promise<void> {
   await check("環境: crypto.subtle が使える（HTTPS または localhost が必要）", () =>
     assert(typeof crypto?.subtle?.digest === "function", "crypto.subtle がありません"));
   await check("環境: Web Locks が使える", () => assert(typeof navigator.locks?.request === "function", "navigator.locks がありません"));
+  await check("環境: Web Locks の排他が働く（同じインスタンスを 2 回は開けず、解放すれば開ける）", async () => {
+    const release = await acquireInstanceLock("selftest-lock");
+    let secondAcquired = false;
+    try {
+      try {
+        (await acquireInstanceLock("selftest-lock"))();
+        secondAcquired = true;
+      } catch (error) {
+        assert(error instanceof InstanceLockedError, "InstanceLockedError 以外のエラーです: " + String(error));
+      }
+      assert(!secondAcquired, "2 つ目も取得できてしまいました");
+    } finally {
+      release();
+    }
+    // release() のあと、ロックが実際に解放されるのは非同期。少し待てば取得できる
+    let reacquired = false;
+    for (let attempt = 0; attempt < 40 && !reacquired; attempt++) {
+      try {
+        (await acquireInstanceLock("selftest-lock"))();
+        reacquired = true;
+      } catch (error) {
+        assert(error instanceof InstanceLockedError, "InstanceLockedError 以外のエラーです: " + String(error));
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    assert(reacquired, "解放してから 1 秒たっても、取得できません");
+  });
   await check("環境: storage.persist() が使える（情報のみ）", async () => {
     const persisted = await navigator.storage?.persisted?.();
     results.push({ name: `  (参考) 永続化の状態: ${String(persisted)}`, ok: true });

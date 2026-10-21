@@ -6,7 +6,7 @@ AI コーディングエージェント（Codex、Copilot、Claude など）と�
 
 WasmBox は、ブラウザ内で Linux（エミュレータ上）を動かし、コマンドを実行できる仮想OS。
 **設計と決定事項は [ARCHITECTURE.md](./ARCHITECTURE.md)。作業の前に必ず読むこと。**
-今は M1（Storage層）が完了し、M2（v86 との接続 PoC）の段階。
+今どこまで進んでいるかは、ARCHITECTURE.md の 9 章（マイルストーン）と、README.md の「検証状況」を見ること。
 
 ## 変更のたびに実行するもの
 
@@ -14,7 +14,15 @@ WasmBox は、ブラウザ内で Linux（エミュレータ上）を動かし、
 npm run typecheck && npm test
 ```
 
-どちらも通る状態でコミットする。ブラウザ側の確認には `npm run poc` と `poc/selftest.html`（`poc/README.md` 参照）を使う。
+どちらも通る状態でコミットする。ブラウザ側の確認には `npm run poc` と `poc/selftest.html`（`poc/README.md` 参照）、ターミナルアプリは `npm run site:build && npm run site:serve`（README.md 参照）を使う。
+実ブラウザ + v86 の確認は、ローカルでは v86 を用意できないことがあるため、GitHub Actions（`.github/workflows/`）で行う。
+
+リレー（`tools/relay*`）を変えたときは、wisp-js を入れてから、リレーのテストを実行する（入っていないと、結合テストはスキップされる。CI の `relay` ジョブが同じことをする）:
+
+```sh
+npm install --no-save --package-lock=false @mercuryworkshop/wisp-js@0.5.0
+node --test test/relay.integration.test.ts test/relay-policy.test.ts test/relay-check-lib.test.ts
+```
 
 ## コードの規約
 
@@ -39,6 +47,17 @@ npm run typecheck && npm test
   未確認は 🔬 を付け、断定しない。推測を、確認済みの事実のように書かない。
 - 実行していないコードを「動作確認済み」と書かない。確認したのが「テスト」なのか「実ブラウザ」なのか「v86 と結合した状態」なのかを明記する。
 
+## ライセンス
+
+WasmBox 自身のコードは GPL-3.0-or-later（`LICENSE`。持ち主の決定、2026-10-19）。著作権表示（`Copyright (C) 年 名前`）は入れない（持ち主の決定）。
+
+- `LICENSE` は書き換えない（`test/license.test.ts` が、全文が変わっていないことを確かめる）。
+- 他者のコードや部品（vendor するもの、イメージに入れるもの）を新しく含めるときは、GPL-3.0 と両立するライセンスかを確認して、`THIRD_PARTY_NOTICES.md` に書く。両立するか分からないものは、入れずに持ち主に聞く。
+- 持ち主が決めていないこと（アプリの公開、GPL の部品のソース提供の方法）は、AI が決めない。
+- 公開リレーは運営しない（持ち主の決定、2026-10-20）。リレーは、利用者が自分の手元・自分のサーバーで動かす。公開リレーを前提にする変更（既定のリレーの URL を置くなど）はしない。
+- wisp-js は WasmBox の依存パッケージにしない（`package.json` に入れない。`--no-save` で入れる）。
+- GitHub Pages は、ソースコードを見せるだけの一時的な公開（持ち主の方針、2026-10-19）で、2026-10-21 に持ち主が非公開にした。アプリ本体を載せない。
+
 ## コミットしないもの
 
-- `node_modules/`、`poc/dist/`、`poc/vendor/`（v86 の実体やカーネル）、ディスクイメージ、チャンクの出力。
+- `node_modules/`、`poc/dist/`、`poc/vendor/`（v86 の実体やカーネル、xterm.js）、`poc/image/`、`site/`（公開用に組み立てたもの）、ディスクイメージ、チャンクの出力。

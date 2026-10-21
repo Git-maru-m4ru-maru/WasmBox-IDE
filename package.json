@@ -2,6 +2,7 @@
   "name": "wasmbox",
   "version": "0.0.1",
   "private": true,
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "description": "ブラウザ内で動くWASM仮想Linux環境",
   "engines": {
@@ -13,7 +14,11 @@
     "chunk-image": "node tools/chunk-image.ts",
     "poc:build": "esbuild poc/main.ts poc/selftest.ts poc/alpine.ts --bundle --format=esm --target=es2022 --outdir=poc/dist",
     "poc:serve": "node tools/serve.ts poc 8080",
-    "poc": "npm run poc:build && npm run poc:serve"
+    "poc": "npm run poc:build && npm run poc:serve",
+    "site:build": "node tools/build-site.ts && esbuild app/main.ts --bundle --format=esm --target=es2022 --outfile=site/app.js",
+    "site:serve": "node tools/serve.ts site 8080",
+    "relay": "node tools/relay.mjs",
+    "relay:check": "node tools/relay-check.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

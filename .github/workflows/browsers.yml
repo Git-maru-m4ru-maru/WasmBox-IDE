@@ -1,0 +1,65 @@
+name: Browser self-test (Chromium / Firefox / WebKit)
+
+# Storage 層と v86 アダプタが、複数のブラウザエンジンで動くかを確かめる（v86 は使わない）。
+# WebKit は Playwright の WebKit で、Safari そのものではない。
+
+on:
+  push:
+    paths:
+      - "src/storage/**"
+      - "src/engine/**"
+      - "poc/selftest.ts"
+      - "poc/selftest.html"
+      - "tools/selftest-browsers.mjs"
+      - "tools/smoke-lib.mjs"
+      - "tools/serve.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/browsers.yml"
+  pull_request:
+    paths:
+      - "src/storage/**"
+      - "src/engine/**"
+      - "poc/selftest.ts"
+      - "poc/selftest.html"
+      - "tools/selftest-browsers.mjs"
+      - "tools/smoke-lib.mjs"
+      - "tools/serve.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/browsers.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Install Playwright and browsers
+        run: |
+          npm install --no-save --package-lock=false playwright
+          npx playwright install --with-deps chromium firefox webkit
+      - run: npm run poc:build
+      - name: Start PoC server
+        run: |
+          npm run poc:serve > /tmp/wasmbox-poc-server.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/selftest.html >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/wasmbox-poc-server.log
+          exit 1
+      - name: Self-test in each browser
+        run: node tools/selftest-browsers.mjs

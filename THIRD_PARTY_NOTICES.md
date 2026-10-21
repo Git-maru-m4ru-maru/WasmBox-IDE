@@ -1,0 +1,67 @@
+# サードパーティのソフトウェアと、再配布の条件（下書き）
+
+> **これは下書きです。法的な助言ではなく、リポジトリの持ち主が確認して決めるための材料です。**
+> 「要確認」と書いた項目は、私（このファイルを書いた AI）が、一次情報（各プロジェクトのライセンス文書）を読んで確かめていません。
+> 公開サイトを作る前に、持ち主が確認してください。
+
+## なぜ必要か
+
+アプリ（`site/`、`.github/workflows/site.yml` が作る）は、次のものを**そのまま配布する形**になっています。
+WasmBox のリポジトリ自体にはこれらは入っていません（`poc/vendor/` はコミットしない）が、アプリを公開すると、訪問者に配ることになります。
+
+持ち主の方針（2026-10-19）は、**GitHub Pages での公開は一時的で、ソースコードを見せるだけ**。アプリ本体は Pages に載せないので、いまは配布は起きていません。
+この一覧は、将来アプリを公開するとき（や、誰かが fork して公開するとき）のために残しています。
+
+## 配布物の一覧
+
+| ファイル（サイト内） | 中身 | 由来 | ライセンス | 状態 |
+|---|---|---|---|---|
+| `vendor/libv86.js`, `vendor/v86.wasm` | v86（x86 エミュレータ） | npm の `v86@0.5` | BSD-2-Clause（と理解している） | 要確認 |
+| `vendor/seabios.bin` | SeaBIOS | copy/v86 リポジトリの `bios/` | LGPL-3.0（と理解している） | 要確認 |
+| `vendor/vgabios.bin` | VGA BIOS | copy/v86 リポジトリの `bios/` | LGPL-2.1（と理解している） | 要確認 |
+| `vendor/kernel.bin` | Linux カーネル（`buildroot-bzimage68_v86.bin`） | [chschnell/v86-buildroot](https://github.com/chschnell/v86-buildroot) v1.0.2 のリリース | GPL-2.0 | 要確認（ソースの提供方法） |
+| `vendor/xterm.js`, `vendor/xterm.css` | ターミナル表示 | npm の `@xterm/xterm@5.5.0` | MIT（と理解している） | 要確認 |
+| `image/chunks/*`, `image/manifest.json` | Alpine Linux 3.21（i386）のルートファイルシステム。Node.js・Python 入り | `image/build.sh` が Docker で作る | パッケージごとに異なる（busybox は GPL-2.0、musl は MIT など） | 要確認（一覧の作成） |
+| `image/initrd.cpio` | 起動用の最小 initrd（`image/initrd/wasmbox-init` と busybox） | `tools/make-initrd.ts` | busybox は GPL-2.0 | 要確認 |
+
+## 持ち主の決定と、残っていること
+
+決定済み（2026-10-19、持ち主）:
+
+1. **WasmBox 自身のライセンスは GPL-3.0 の「以降のバージョンも許す」形（GPL-3.0-or-later）**。`LICENSE` に GPL-3.0 の全文を置いた（Debian の `common-licenses/GPL-3` と一致。`test/license.test.ts` が、書き換わっていないことを確かめる）。
+   `package.json` の `license` は `GPL-3.0-or-later`。「以降のバージョンも」という意思は、README の標準の許諾文で示している。
+2. **著作権表示は入れない**（`Copyright (C) 年 名前` の行は、README にも各ファイルにも書かない）。
+3. **GitHub Pages での公開は一時的で、ソースコードを見せるだけ**。アプリ本体は Pages に載せない。CI は、Pages 用の成果物（カーネルなどを含む）を、`main` での手動実行のとき以外は作らない。
+
+この決定と、配布物のライセンスの関係（**私の理解。法的な助言ではなく、持ち主が確認すること**）:
+
+- v86（BSD-2-Clause）と xterm.js（MIT）は、GPL-3.0 のコードと一緒に配れると理解している（寛容なライセンスの部品は、GPL の作品に含められる）。
+- SeaBIOS（LGPL-3.0）と VGA BIOS（LGPL-2.1）は、WasmBox のコードにリンクせず、別のファイルとして配るだけ。
+- Linux カーネル（GPL-2.0）と busybox（GPL-2.0）は、ディスクイメージと initrd の中の別のプログラム。WasmBox のコードと一つにはならず、並べて配る形（いわゆる「単なる集合」と理解）。
+  GPL-2.0 のプログラムと GPL-3.0 のコードを、一つのプログラムに結合することはできないが、別々のものとして並べて配ることはできる、と理解している。
+- 🔬 いずれも、各ライセンスの文書を読んで確かめたものではない。
+
+まだ決まっていないこと:
+
+4. **GPL の部品（カーネル・busybox など）のソース提供**: バイナリを配るときに必要になる。Pages にアプリを載せない間は、起きない（と理解している）。アプリを公開するときに、決める。
+   候補: ① v86-buildroot と Alpine のソースへのリンクを、このファイルとサイトのフッターに明記する、② ソースの写しをサイトに置く。
+5. **ライセンスの一覧の自動作成**: Alpine のパッケージ（`apk info -a` などで、各パッケージのライセンスが分かります）の一覧を、
+   イメージのビルド時に生成して、サイトに載せることを検討してください。🔬 まだ作っていません。
+6. **アプリを公開するとき**（いまは予定なし）: GitHub Pages は、持ち主が 2026-10-21 に非公開にしました（持ち主の申告。私は Pages の設定を読めず、確認できていません）。
+   それ以前に公開されていたのは、README を文書として表示するページだけで、アプリ（この文書の「配布物」）は載っていませんでした（2026-10-18 に確認）。
+   `site.yml` の `deploy` ジョブは `main` で手動実行したときだけ動き、Pages の公開元が「GitHub Actions」であることを前提にします（🔬 公式の手順は未確認）。
+   アプリを公開するときは、持ち主が Pages の設定を確認してください。
+7. **ネットワークのリレー**: WasmBox は、リレー（WISP サーバー）を配布も運営もしません（公開リレーは運営しない。持ち主の決定、2026-10-20）。利用者が自分のリレーの URL を入れます。
+   手元・自分のサーバー用に `tools/relay.mjs`（`npm run relay`）と `tools/relay/Dockerfile` がありますが、`@mercuryworkshop/wisp-js` は **WasmBox のリポジトリにも、サイトにも入りません**。
+   使うときに、利用者が `npm install --no-save` で入れます（Dockerfile は、利用者がイメージを作るときに入れます）。CI でも、テストのために同じ方法で入れます。
+   - wisp-js 0.5.0 のライセンスは **LGPL-3.0**。2026-10-21 に、GitHub の `v0.5.0` のタグ（このとき既定ブランチの先頭と同じ）の `LICENSE`（LGPL v3 の全文）・README・`package.json`（`LGPL-3.0-or-later`）が一致することを、実物で確かめた。
+     2026-10-19 の jsDelivr の同じ版でも一致していた。以前「GitHub の最新の README は AGPL と読めた」とメモしたが、それは AI の要約によるもので、README の本文を直接読むと LGPL v3 だった。版を上げるときは、その版の `LICENSE` で確認すること。
+   - wisp-js の依存: `ws`（MIT。`LICENSE` と `package.json` を確認）、`ipaddr.js`（MIT。同）、`commander`・`bufferutil`（🔬 未確認）。
+   - `tools/relay.mjs` は、wisp-js の API（`server.routeRequest`、`server.options`）を呼ぶだけで、wisp-js のコードを含みません。GPL-3.0-or-later の WasmBox から、LGPL-3.0 のライブラリを使うことは、両立すると理解しています（法的な助言ではありません）。
+   - 🔬 リレーの Docker イメージを**配布**する場合は、イメージに入る wisp-js と依存のライセンス表示・ソースの提供が必要になりえます。WasmBox は、いまイメージを配布しません。
+
+## 確かめたこと・確かめていないこと
+
+- 配布物の**一覧**は、`tools/build-site.ts` と `tools/prepare-vendor.sh` の内容から作りました（事実）。
+- 各ライセンスの**種類**は、私の理解です。各プロジェクトのライセンス文書を、まだ読んでいません。
+- 「要確認」の項目が残っている間は、サイトを公開しないことを勧めます（CI でのビルドと動作確認は、公開とは別なので問題ありません）。

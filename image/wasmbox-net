@@ -1,0 +1,43 @@
+#!/bin/sh
+# WasmBox のネットワーク初期化。busybox init の ::once: から起動される（image/inittab）。
+#   - lo（ループバック）は、ネットワークの設定にかかわらず、いつも上げる（Node.js などが 127.0.0.1 を使うため）。
+#   - カーネルのコマンドラインに wasmbox.net=on があるとき（アプリがネットワークを有効にしたとき）だけ、DHCP でアドレスを取る。
+#     v86 は、ネットワークがオフでも、NIC（eth0）を常に作る。つながる先がないので、DHCP を試しても失敗するだけ（-t 5 -T 3 なので、最大で約 15 秒。計算上の値で、実測はしていない）。
+#   - 対象は Ethernet の NIC（/sys/class/net/*/type が 1）。lo や、カーネルが作る sit0・tunl0 などのトンネルは、NIC として扱わない。
+#   - 経過は /run/wasmbox-net.log に残す。コンソール（シリアル）には何も出さない。
+# 環境変数（WASMBOX_NET_LOG / WASMBOX_SYS_NET / WASMBOX_UDHCPC_SCRIPT / WASMBOX_CMDLINE_FILE）は、テストで差し替えるためのもの。
+LOG=${WASMBOX_NET_LOG:-/run/wasmbox-net.log}
+SYS_NET=${WASMBOX_SYS_NET:-/sys/class/net}
+UDHCPC_SCRIPT=${WASMBOX_UDHCPC_SCRIPT:-/usr/local/sbin/wasmbox-udhcpc-script}
+CMDLINE_FILE=${WASMBOX_CMDLINE_FILE:-/proc/cmdline}
+
+exec >"$LOG" 2>&1
+echo "wasmbox-net: 開始 $(date 2>&1)"
+
+ip link set lo up || echo "lo を上げられませんでした"
+
+# ネットワークがオフなら、lo だけで終わる
+case " $(cat "$CMDLINE_FILE" 2>/dev/null) " in
+  *" wasmbox.net=on "*) ;;
+  *)
+    echo "ネットワークはオフ（カーネルのコマンドラインに wasmbox.net=on がない）"
+    exit 0
+    ;;
+esac
+
+found=0
+for dir in "$SYS_NET"/*; do
+  [ -e "$dir" ] || continue
+  ifc=${dir##*/}
+  [ "$(cat "$dir/type" 2>/dev/null)" = 1 ] || continue
+  found=1
+  echo "NIC: $ifc"
+  ip link set "$ifc" up || echo "$ifc を上げられませんでした"
+  if udhcpc -i "$ifc" -s "$UDHCPC_SCRIPT" -q -n -t 5 -T 3; then
+    echo "DHCP 成功: $ifc"
+  else
+    echo "DHCP 失敗: $ifc"
+  fi
+done
+[ "$found" = 1 ] || echo "NIC なし（Ethernet のデバイスが見つかりません）"
+exit 0

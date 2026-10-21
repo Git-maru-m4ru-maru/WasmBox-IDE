@@ -1,0 +1,122 @@
+name: Site (terminal app)
+
+# 公開用のサイト（site/）をビルドし、実ブラウザ + v86 + Alpine で操作して確かめる。
+# 方針（持ち主の決定、2026-10-19）: GitHub Pages での公開は一時的で、ソースコードを見せるだけ。アプリ本体は Pages に載せない。
+# そのため、Pages 用の成果物（カーネルなどを含む）は、main での手動実行のときしか作らない。
+# 将来アプリを公開するときは、持ち主が Pages を有効にしたうえで、main で手動実行する（deploy ジョブ）。
+#   Settings → Pages → Build and deployment → Source を「GitHub Actions」にする。
+
+on:
+  push:
+    paths:
+      - "app/**"
+      - "src/**"
+      - "image/**"
+      - "tools/build-site.ts"
+      - "tools/prepare-vendor.sh"
+      - "tools/app-smoke.mjs"
+      - "tools/net-smoke.mjs"
+      - "tools/step-judge.ts"
+      - "tools/smoke-lib.mjs"
+      - "tools/serve.ts"
+      - "tools/chunk-image.ts"
+      - "tools/inspect-image.ts"
+      - "tools/cpio.ts"
+      - "tools/make-initrd.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/site.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "src/**"
+      - "image/**"
+      - "tools/build-site.ts"
+      - "tools/prepare-vendor.sh"
+      - "tools/app-smoke.mjs"
+      - "tools/net-smoke.mjs"
+      - "tools/step-judge.ts"
+      - "tools/smoke-lib.mjs"
+      - "tools/serve.ts"
+      - "tools/chunk-image.ts"
+      - "tools/inspect-image.ts"
+      - "tools/cpio.ts"
+      - "tools/make-initrd.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      # --no-save のインストールは package.json にないパッケージを消すので、必要なものを 1 回で指定する
+      - name: Install v86, xterm.js and browser smoke dependencies
+        run: npm install --no-save --package-lock=false v86@0.5 @xterm/xterm@5.5.0 playwright @mercuryworkshop/wisp-js@0.5.0
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build Alpine rootfs and verify ext4 chunks
+        run: bash image/build.sh
+      - name: Prepare vendor files
+        run: bash tools/prepare-vendor.sh
+      - name: Build site
+        run: |
+          npm run site:build
+          du -sh site
+          echo "::notice title=WasmBox site::$(du -sm site | cut -f1) MiB, $(ls site/image/chunks | wc -l) chunks, app.js $(stat -c %s site/app.js) bytes"
+      - name: Start site server
+        run: |
+          npm run site:serve > /tmp/wasmbox-site-server.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/index.html >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/wasmbox-site-server.log
+          exit 1
+      - name: App smoke test (boot, type, Node.js, save, reload, reset)
+        run: node tools/app-smoke.mjs
+      # ネットワーク。2026-10-18 の実測で、通ると分かったものを検査にした（ARCHITECTURE.md 5.1）:
+      #   失敗にする: オフ（lo だけ）、WISP リレー経由の DHCP・runner への HTTP・8 MiB の転送（ne2k と virtio）、fetch 方式の localhost:N
+      #   警告にとどめる: インターネットに依存するもの（DNS・HTTPS・apk・Python・Node.js・npm）。外の事情で落ちうるため。
+      # 結果（時間・出力）は、どちらの場合も annotation に残す。
+      - name: Network smoke test (off / WISP relay / fetch)
+        timeout-minutes: 25
+        run: node tools/net-smoke.mjs
+      - name: Upload site for GitHub Pages
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    # 手動実行（workflow_dispatch）で、main のときだけ。Pages を有効にするのは持ち主の操作。
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

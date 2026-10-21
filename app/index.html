@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WasmBox</title>
+  <meta name="description" content="ブラウザの中だけで動く Linux（Alpine）。Node.js と Python が入っていて、書き込んだ内容はこのブラウザに残ります。">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="vendor/xterm.css">
+  <style>
+    :root {
+      --paper: #f4f1ea;
+      --ink: #1d2038;
+      --muted: #5d6178;
+      --line: #d9d4c7;
+      --screen: #14172b;
+      --saved: #5c9e7a;
+      --pending: #d9a441;
+      --error: #d4574e;
+      --idle: #6b7089;
+      --accent: #3b4a9c;
+      --serif: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", "Noto Serif JP", serif;
+      --sans: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", "Noto Sans CJK JP", sans-serif;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK JP", monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --paper: #0e1020; --ink: #dcdad0; --muted: #9a9db2; --line: #2a2e48; --screen: #14172b; --accent: #9fb0ff; }
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--paper); }
+    body {
+      margin: 0 auto; max-width: 62rem; padding: 2rem 1rem 3rem;
+      background: var(--paper); color: var(--ink); font: 15px/1.7 var(--sans);
+    }
+    header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem 1.5rem; margin-bottom: 1rem; }
+    h1 { margin: 0; font: 600 2rem/1.2 var(--serif); letter-spacing: .02em; }
+    .lead { margin: .2rem 0 0; color: var(--muted); }
+    #save-label { font-size: .9rem; color: var(--muted); }
+    #save-label::before {
+      content: ""; display: inline-block; width: .6rem; height: .6rem; margin-right: .45rem; border-radius: 50%;
+      background: var(--idle); vertical-align: baseline;
+    }
+    #save-label[data-save="saved"]::before { background: var(--saved); }
+    #save-label[data-save="pending"]::before { background: var(--pending); }
+    #save-label[data-save="error"]::before { background: var(--error); }
+
+    #frame {
+      position: relative; background: var(--screen); border-radius: 10px; overflow: hidden;
+      border-left: 5px solid var(--idle); padding: 14px 12px 14px 14px;
+      box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 12px 32px -18px rgba(10,12,30,.55);
+      transition: border-color .25s;
+    }
+    #frame[data-save="saved"] { border-left-color: var(--saved); }
+    #frame[data-save="pending"] { border-left-color: var(--pending); }
+    #frame[data-save="error"] { border-left-color: var(--error); }
+    #terminal { min-height: 12rem; overflow-x: auto; }
+    #terminal .xterm-viewport { background-color: transparent !important; }
+    #overlay {
+      position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: .4rem; padding: 1.5rem; text-align: center; background: var(--screen); color: #e6e4dc;
+    }
+    #overlay[hidden] { display: none; }
+    #phase { font: 600 1.05rem/1.5 var(--serif); }
+    #phase-detail { max-width: 36rem; font-size: .88rem; color: #aab0cf; white-space: pre-wrap; }
+    #overlay[data-kind="error"] #phase { color: #ff9b94; }
+
+    .actions { display: flex; flex-wrap: wrap; gap: .6rem; margin: .9rem 0 .4rem; }
+    button {
+      font: inherit; font-size: .9rem; padding: .4rem 1rem; border-radius: 6px; cursor: pointer;
+      color: var(--ink); background: transparent; border: 1px solid var(--line);
+    }
+    button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    button:disabled { opacity: .5; cursor: default; }
+    button.danger:hover:not(:disabled) { border-color: var(--error); color: var(--error); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    details#network { margin: .9rem 0 0; padding: .1rem .9rem; border: 1px solid var(--line); border-radius: 8px; }
+    details#network summary { cursor: pointer; padding: .35rem 0; font-size: .9rem; }
+    details#network fieldset { margin: .4rem 0 .6rem; padding: 0; border: 0; }
+    details#network label { display: block; margin: .25rem 0; }
+    details#network .hint { margin: .15rem 0 0 1.6rem; font-size: .82rem; color: var(--muted); }
+    #relay-url {
+      display: block; width: 100%; max-width: 34rem; margin: .3rem 0 0 1.6rem; padding: .35rem .6rem;
+      font: .85rem var(--mono); color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 6px;
+    }
+    #net-message { min-height: 1.6em; margin: .4rem 0 .6rem; font-size: .88rem; color: var(--muted); }
+    #info { margin: .2rem 0 0; font: .78rem/1.6 var(--mono); color: var(--muted); white-space: pre-wrap; }
+    #notice { min-height: 1.7em; margin: .2rem 0 0; font-size: .88rem; color: var(--muted); }
+    footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--line); font-size: .85rem; color: var(--muted); }
+    footer p { margin: .35rem 0; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>WasmBox</h1>
+      <p class="lead">ブラウザの中だけで動く Linux。Node.js と Python が入っています。</p>
+    </div>
+    <div id="save-label" role="status" data-save="idle">起動前</div>
+  </header>
+
+  <main>
+    <div id="frame" data-save="idle">
+      <div id="terminal" aria-label="ターミナル"></div>
+      <div id="overlay">
+        <div id="phase">準備しています…</div>
+        <div id="phase-detail"></div>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="flush" type="button" disabled>今すぐ保存</button>
+      <button id="reset" type="button" class="danger" disabled>ディスクを初期化</button>
+    </div>
+    <div id="notice" role="status" aria-live="polite"></div>
+
+    <details id="network">
+      <summary id="net-summary">ネットワーク</summary>
+      <fieldset>
+        <legend class="hint" style="margin-left:0">ネットワークは起動のときに決まります。変えると、保存して再読み込みします（ディスクの内容は残ります）。</legend>
+        <label><input type="radio" name="net" value="off"> オフ（既定）</label>
+        <label><input type="radio" name="net" value="fetch"> ブラウザのみ（fetch）</label>
+        <p class="hint">サーバー不要。ゲストの HTTP（80 番）だけが通ります。HTTPS（apk・npm・pip など）は通りません。相手が CORS を許可していないページも読めません。</p>
+        <label><input type="radio" name="net" value="relay"> リレー経由</label>
+        <p class="hint">TCP 全般が通ります。リレーのサーバーが必要です（自分で用意するか、信頼できる人のものを使ってください。通信の宛先と量は、リレーの運営者に見えます）。
+          <code>wisps://</code>・<code>wisp://</code> は WISP サーバー用（推奨）、<code>wss://</code>・<code>ws://</code> は Ethernet フレームを中継する従来のリレー用です。https のページでは、暗号化される <code>wisps://</code> と <code>wss://</code> だけ使えます。</p>
+        <label class="hint" for="relay-url" style="margin-left:1.6rem">リレーの URL</label>
+        <input id="relay-url" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="wisps://relay.example.com/">
+      </fieldset>
+      <button id="net-apply" type="button">適用して再読み込み</button>
+      <div id="net-message" role="status" aria-live="polite"></div>
+    </details>
+    <div id="info"></div>
+  </main>
+
+  <footer>
+    <p>ディスクへの書き込みは、このブラウザの中（IndexedDB）にだけ保存されます。サーバーには送られません。ネットワークは既定でオフです（設定欄で、実験的にオンにできます）。</p>
+    <p>タブを閉じる直前の書き込み（最後の数百ミリ秒ぶん）は、保存されないことがあります。その場合も、ファイルシステムの整合性は保たれます。</p>
+    <p>ターミナルの大きさは 80 桁 × 24 行です。<a href="https://github.com/maru-m4ru-maru/WasmBox">ソースコードと設計（GitHub）</a></p>
+  </footer>
+
+  <script src="vendor/libv86.js"></script>
+  <script src="vendor/xterm.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

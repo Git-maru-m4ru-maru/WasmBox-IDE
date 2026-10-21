@@ -9,6 +9,9 @@
 ::sysinit:/bin/mount -t tmpfs tmpfs /run
 ::sysinit:/bin/hostname -F /etc/hostname
 
+# ネットワークの初期化（lo を上げ、NIC があれば DHCP）。待たずに、バックグラウンドで走る
+::once:/usr/local/sbin/wasmbox-net
+
 # シリアルコンソールでシェルを起動する（v86 のシリアルが ttyS0 に見える前提）
 ttyS0::respawn:-/bin/sh
 

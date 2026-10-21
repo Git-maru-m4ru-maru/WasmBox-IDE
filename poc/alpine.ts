@@ -20,6 +20,12 @@ const kernel = params.get("kernel") ?? "vendor/buildroot-bzimage.bin";
 const imageDir = (params.get("image") ?? "image").replace(/\/+$/, "");
 const cmdlineParam = params.get("cmdline");
 const initrdParam = params.get("initrd");
+// 検証用: ページ離脱時の flush を外す（定期 flush だけが頼りのときに、どこまで失われるかを測る）
+const autoFlushOff = params.get("autoflush") === "off";
+// 保存の間隔。v86 はゲストの sync を伝えてこないので、「最後の書き込みから 150ms 止まったら保存」と
+// 「1 秒ごと」の両方で、タブを突然閉じたときに失われる範囲を縮める。検証では片方だけを効かせるために変える。
+const flushIntervalMs = Number(params.get("flushinterval") ?? "1000");
+const flushIdleMs = Number(params.get("flushidle") ?? "150");
 
 const $ = (id: string) => {
   const element = document.getElementById(id);
@@ -63,6 +69,10 @@ async function main(): Promise<void> {
 
   if (!Number.isFinite(memoryMiB) || memoryMiB < 64 || memoryMiB > 2048) {
     log("memory は 64〜2048（MiB）で指定してください: " + String(params.get("memory")));
+    return;
+  }
+  if (!Number.isFinite(flushIntervalMs) || !Number.isFinite(flushIdleMs)) {
+    log("flushinterval / flushidle は数値（ms）で指定してください");
     return;
   }
 
@@ -122,7 +132,8 @@ async function main(): Promise<void> {
       }),
       baseCache,
       instance,
-      flushIntervalMs: 1000,
+      flushIntervalMs,
+      flushIdleMs,
       memoryCacheBytes: 32 * MiB,
       onError: (error) => log("⚠️ flush に失敗: " + String(error)),
     });
@@ -137,7 +148,7 @@ async function main(): Promise<void> {
   device = new V86BlockDevice(store, {
     onError: (error) => log("⚠️ ディスクI/Oに失敗（ゲストは止まります）: " + String(error)),
   });
-  installAutoFlush(device);
+  if (!autoFlushOff) installAutoFlush(device);
 
   $("boot-info").textContent =
     "イメージ " + manifest.imageId +
@@ -161,7 +172,10 @@ async function main(): Promise<void> {
   });
 
   if (params.get("smoke") === "1") {
-    (window as Window & { __wasmboxAlpineV86?: unknown }).__wasmboxAlpineV86 = emulator;
+    // 自動テストが、シリアル送信と保存状況の確認に使う
+    const hooks = window as Window & { __wasmboxAlpineV86?: unknown; __wasmboxAlpineStore?: ChunkedBlockStore };
+    hooks.__wasmboxAlpineV86 = emulator;
+    hooks.__wasmboxAlpineStore = store;
   }
 
   const activeStore = store;
