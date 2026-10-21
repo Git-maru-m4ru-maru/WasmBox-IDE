@@ -56,9 +56,20 @@ jobs:
           done
           docker logs wasmbox-relay
       - name: フィルタを検査する（必須の項目がすべて断られること）
-        run: node tools/relay-check.mjs wisp://127.0.0.1:5001/
+        run: |
+          set +e
+          node tools/relay-check.mjs wisp://127.0.0.1:5001/ > relay-check.txt 2>&1
+          rc=$?
+          cat relay-check.txt
+          # 結果を注釈にも残す（失敗の理由を、ログを開かずに読めるように。✅ 以外の行だけ）
+          msg=$(grep -v '^✅' relay-check.txt | head -c 3500 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+          echo "::notice title=relay-check (exit $rc)::$msg"
+          exit $rc
       - name: コンテナのログ
         if: always()
         run: |
-          docker logs wasmbox-relay 2>&1 | tail -40
+          docker logs wasmbox-relay > relay-container.log 2>&1
+          tail -40 relay-container.log
+          msg=$(tail -c 3000 relay-container.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+          echo "::notice title=relay コンテナのログ::$msg"
           docker rm -f wasmbox-relay
