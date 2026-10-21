@@ -1,0 +1,4 @@
+# リレーのコンテナのビルドには、2 つのファイルしか使わない（tools/relay/Dockerfile）
+*
+!tools/relay.mjs
+!tools/relay-policy.ts

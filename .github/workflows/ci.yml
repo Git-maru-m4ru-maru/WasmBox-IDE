@@ -20,3 +20,45 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run poc:build
+
+  # ネットワーク用のリレー（tools/relay.mjs）。wisp-js は WasmBox の依存パッケージではないので、package.json には入れず、
+  # このジョブのためだけに --no-save で入れる。実物の wisp-js に対して、接続先のフィルタ・Origin・ポート・UDP の制限を確かめる。
+  relay:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save --package-lock=false @mercuryworkshop/wisp-js@0.5.0
+      - run: node --test test/relay.integration.test.ts test/relay-policy.test.ts test/relay-check-lib.test.ts
+
+  # docs/relay.md の Docker の手順（権限を絞った指定のまま）で、イメージを作って起動し、フィルタを外から確かめる。
+  relay-docker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: イメージを作る
+        run: docker build -f tools/relay/Dockerfile -t wasmbox-relay .
+      - name: 起動する（docs/relay.md の指定）
+        run: |
+          docker run -d --name wasmbox-relay -p 127.0.0.1:5001:5001 \
+            --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 256 --memory 256m \
+            wasmbox-relay --origin http://localhost:8080
+          for i in $(seq 1 30); do
+            if (echo > /dev/tcp/127.0.0.1/5001) 2>/dev/null; then break; fi
+            sleep 1
+          done
+          docker logs wasmbox-relay
+      - name: フィルタを検査する（必須の項目がすべて断られること）
+        run: node tools/relay-check.mjs wisp://127.0.0.1:5001/
+      - name: コンテナのログ
+        if: always()
+        run: |
+          docker logs wasmbox-relay 2>&1 | tail -40
+          docker rm -f wasmbox-relay

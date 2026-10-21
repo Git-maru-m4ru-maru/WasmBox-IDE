@@ -16,7 +16,9 @@
     "poc:serve": "node tools/serve.ts poc 8080",
     "poc": "npm run poc:build && npm run poc:serve",
     "site:build": "node tools/build-site.ts && esbuild app/main.ts --bundle --format=esm --target=es2022 --outfile=site/app.js",
-    "site:serve": "node tools/serve.ts site 8080"
+    "site:serve": "node tools/serve.ts site 8080",
+    "relay": "node tools/relay.mjs",
+    "relay:check": "node tools/relay-check.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

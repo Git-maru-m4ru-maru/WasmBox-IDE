@@ -7,7 +7,7 @@
 //
 // シナリオ:
 //   off          … ネットワークなし。lo が上がり、DHCP を試さず（v86 は、オフでも NIC を作る）、resolv.conf が /run へのリンクであること（検査する）
-//   relay-ne2k   … WISP リレー（このスクリプトが runner 上で起動する wisp-js）+ ne2k。DHCP・DNS・HTTP・HTTPS・転送速度・apk・Python・Node.js・npm
+//   relay-ne2k   … WISP リレー（このスクリプトが runner 上で起動する tools/relay.mjs）+ ne2k。DHCP・DNS・HTTP・HTTPS・転送速度・apk・Python・Node.js・npm
 //   relay-virtio … 同じ内容を virtio で（NIC の種類による違いを比べる）
 //   fetch        … ブラウザの fetch のみ（HTTP の 80 番だけ）。CORS を許可する、runner 上の HTTP サーバーへ
 //
@@ -70,13 +70,14 @@ function runnerAddress() {
 const TARGET_HOST = runnerAddress();
 
 const wispLog = [];
-// パッケージの exports に含まれないパスなので、ファイルとして直接指す
-const wispCli = fileURLToPath(new URL("../node_modules/@mercuryworkshop/wisp-js/src/bin/server_cli.mjs", import.meta.url));
-// wisp-js は、既定でループバックとプライベート IP への接続を拒否する。CI では runner 上の HTTP サーバー（プライベート IP）へ届けたいので許可する。
-// 公開するリレーでは、許可してはいけない（README の注意を参照）。
+// WasmBox のリレー（tools/relay.mjs。wisp-js を、接続先を IPv4 アドレスだけに絞るなどの方針つきで動かす）を、実際の使い方のまま起動する。
+// これで、v86 が実際に送ってくる接続先の形（IPv4 のドット区切り）が、リレーの絞り込みを通ることも確かめる。
+// CI では runner 上の HTTP サーバー（プライベート IP の 9090 番）へ届けたいので、--unsafe-allow-private と --ports all を付ける。公開するリレーでは使わない。
+// UDP は既定のまま（断る）。DNS・DHCP・apk・npm が通れば、ゲストの通常の通信に UDP は要らない、という確認にもなる。
+const relayScript = fileURLToPath(new URL("./relay.mjs", import.meta.url));
 const wisp = spawn(
   process.execPath,
-  [wispCli, "-H", "127.0.0.1", "-P", String(WISP_PORT), "-L", "INFO", "-O", JSON.stringify({ allow_loopback_ips: true, allow_private_ips: true })],
+  [relayScript, "--port", String(WISP_PORT), "--origin", new URL(SITE).origin, "--ports", "all", "--unsafe-allow-private", "--log", "INFO"],
   { stdio: ["ignore", "pipe", "pipe"] },
 );
 wisp.stdout.on("data", (chunk) => wispLog.push(String(chunk)));
