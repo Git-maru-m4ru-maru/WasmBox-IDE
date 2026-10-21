@@ -58,7 +58,10 @@ CI（`.github/workflows/site.yml`）が、同じ手順でビルドして実ブ�
 | `tools/make-initrd.ts` | 直接ルート起動用の外付け initrd を作る |
 | `tools/alpine-smoke.mjs` / `tools/persist-smoke.mjs` | 実ブラウザ（Playwright）+ v86 + Alpine の自動確認。起動・Node.js・Python と、永続化 |
 | `tools/app-smoke.mjs` | ターミナルアプリの自動確認（起動・入力・保存表示・再読み込み・初期化） |
-| `tools/net-smoke.mjs` / `tools/step-judge.ts` | ネットワークの自動確認（オフ / WISP リレー / fetch。WISP サーバーと通信先を runner 上で起動する）と、結果の判定 |
+| `tools/net-smoke.mjs` / `tools/step-judge.ts` | ネットワークの自動確認（オフ / WISP リレー / fetch。`tools/relay.mjs` と通信先を runner 上で起動する）と、結果の判定 |
+| `tools/relay.mjs` / `tools/relay-policy.ts` | 手元・自分のサーバー用の WISP リレー（`npm run relay`）と、その方針（接続先は IPv4 アドレスだけ・Origin・ポート・UDP） |
+| `tools/relay-check.mjs` / `tools/relay-check-lib.ts` | リレーの接続先フィルタが、内部のアドレスへの接続を断るかの検査（`npm run relay:check`。WISP のサーバーなら何に対しても使える） |
+| `tools/relay/Dockerfile` / [docs/relay.md](./docs/relay.md) | リレーのコンテナと、自分のサーバーで動かす手順（TLS のリバースプロキシ・出口のファイアウォール・止める手順） |
 | `tools/selftest-browsers.mjs` | `poc/selftest.html` を Chromium・Firefox・WebKit で実行する |
 | `tools/build-site.ts` / `tools/prepare-vendor.sh` | 公開用の `site/` の組み立てと、`poc/vendor/` の用意 |
 | `tools/serve.ts` | 開発用の静的サーバー（依存なし） |
@@ -73,15 +76,19 @@ CI（`.github/workflows/site.yml`）が、同じ手順でビルドして実ブ�
 | ブラウザのみ（fetch） | ゲストの HTTP（80 番）だけ。相手が CORS を許可している場合のみ。`N.external` と書くと、ブラウザから見た `localhost:N` へ届く | なし |
 | リレー経由（WISP） | TCP 全般。HTTPS、`apk`、`pip`、`npm` も通る | WISP サーバー（リレー） |
 
-`apk add` や `npm install` が目的なら「リレー経由」を使う。**リレーは自分で用意する。既定のリレーは置いていない**
-（運営・費用・悪用への対策は、持ち主が決めること。ARCHITECTURE.md 5.1）。
-
-ローカルで試す（CI が使っているのと同じ起動方法）:
+`apk add` や `npm install` が目的なら「リレー経由」を使う。**リレーは自分で用意する。公開リレーは運営しない**（持ち主の決定、2026-10-20。
+運営・費用・悪用への対策の調査は ARCHITECTURE.md 5.2）。自分のマシンでは、1 コマンドで起動できる:
 
 ```sh
-npm install --no-save --package-lock=false @mercuryworkshop/wisp-js@0.5.0
-node node_modules/@mercuryworkshop/wisp-js/src/bin/server_cli.mjs -H 127.0.0.1 -P 5001
+npm install --no-save --package-lock=false @mercuryworkshop/wisp-js@0.5.0   # リレーの部品（package.json は変わらない）
+npm run relay                                                                # wisp://127.0.0.1:5001/ で待ち受ける
 ```
+
+`npm run relay` は、wisp-js に次の方針を足して起動する（詳しくは [docs/relay.md](./docs/relay.md)）:
+接続先は**ドット区切りの IPv4 アドレスだけ**（wisp-js 0.5.0 の既定のフィルタを `::ffff:127.0.0.1` で迂回できるため）、
+ループバック・プライベート・リンクローカルへは届けない、**許可した Origin のページからだけ**接続できる（既定は `http://localhost:8080` と `http://127.0.0.1:8080`）、
+ゲストが接続できるポートは既定で 80 と 443 だけ、UDP は既定で断る。`npm run relay -- --help` でオプションの一覧。
+フィルタの確認は `npm run relay:check -- wisp://127.0.0.1:5001/`。
 
 `npm run site:serve` で `http://127.0.0.1:8080/` を開き、ネットワーク欄で「リレー経由」を選んで、URL に `wisp://127.0.0.1:5001/` を入れる。
 ゲストの中では、起動時に DHCP でアドレスを取る（`/run/wasmbox-net.log` に経過が残る）。そのあとは、ふつうに使える:
@@ -91,7 +98,8 @@ apk update && apk add jq
 ```
 
 自分で公開したサイト（https）から使うときは、リレーを TLS で包み（リバースプロキシの後ろに置く）、`wisps://` か `wss://` の URL を入れる。
-https のページは、暗号化されない `ws://` / `wisp://` には接続できない（設定欄で断る）。🔬 TLS 付きのリレーは、まだ試していない。
+https のページは、暗号化されない `ws://` / `wisp://` には接続できない（設定欄で断る）。Docker・TLS のリバースプロキシ・出口のファイアウォールの手順は [docs/relay.md](./docs/relay.md)。
+🔬 TLS 付きのリレーと出口のファイアウォールは、まだ試していない。
 
 CI での実測（Chromium 156、v86 0.5、wisp-js 0.5.0。リレーは同じマシン上なので、遅延は実環境より小さい。2026-10-18）:
 
@@ -104,20 +112,25 @@ CI での実測（Chromium 156、v86 0.5、wisp-js 0.5.0。リレーは同じマ
 | Python の `urllib` で HTTPS の GET ／ Node.js の `fetch` で HTTPS の GET | 11 秒 ／ 26 秒 |
 | `npm view is-odd version` ／ `npm install is-odd`（2 パッケージ） | 47〜51 秒 ／ 約 50 秒 |
 
+2026-10-21 の CI では、リレーを `tools/relay.mjs`（接続先は IPv4 だけ・UDP なし）に替えても、同じ操作がすべて成功した（ne2k と virtio。警告・失敗は 0 件）。
+時間は同程度（8 MiB が 3.0〜3.3 秒、`apk update` が 5.8〜6.6 秒、`apk add npm` が 20〜24 秒、`npm install` が 36〜41 秒）。
+つまり、v86 は接続先を IPv4 アドレスで送り、通常の通信（DNS・HTTPS・パッケージの導入）に UDP は要らない。
+（この確認では、runner 上の通信先（9090 番）へ届けるために `--ports all --unsafe-allow-private` を付けた。既定の 80 / 443 だけの制限は、ゲストの通信では試していない。上の通信先は、いずれも 80 か 443 を使う。）
+
 HTTPS が重いのは、TLS の処理を、エミュレートした CPU でやるためと考えている（原因は未検証）。ネットワークをオンにしても、シェルが使えるまでの時間は大きくは変わらない（オフ 7.3 秒、リレー 6.7〜6.8 秒、fetch 7.4 秒。1 回ずつの測定で、差は誤差の範囲と見ている）。
 
 注意:
 
 - ⚠️ **リレーの運営者には、ゲストの通信先（IP とポート）が見える。HTTP の中身も見える。** HTTPS は、ゲストの中で TLS を終えるので、中身はリレーに見えない。
-- ⚠️ **公開リレーは、誰でも使える踏み台（オープンプロキシ）になる。** 運営するなら、悪用への対策が要る（調査の結果と選択肢は ARCHITECTURE.md 5.2）。
+- ⚠️ **公開リレーは、誰でも使える踏み台（オープンプロキシ）になる。** 運営しない（持ち主の決定）。自分のサーバーに置くなら、[docs/relay.md](./docs/relay.md) の対策が要る。
   wisp-js 0.5.0 は、既定で、ループバック・プライベート IP・リンクローカル（169.254.x）などへの接続を拒否するが、
-  **IPv4 マッピングの IPv6 表記（`::ffff:127.0.0.1` など）では、拒否をすり抜けた**（CI で確認）。内部への出口は、ファイアウォールなどネットワーク側でも塞ぐこと。
-  ポートの許可リスト（`port_whitelist`）は効く。接続元の Origin の確認と、クライアント IP ごとの制限・認証はない。
-  CI の WISP サーバーだけは、runner 上の通信先へ届けるために、ループバックとプライベート IP を許可している（公開用ではない）。
+  **IPv4 マッピングの IPv6 表記（`::ffff:127.0.0.1` など）では、拒否をすり抜けた**（CI で確認。`npm run relay` は、接続先を IPv4 アドレスだけにして、この迂回を塞ぐ）。
+  wisp-js 自体には、接続元の Origin の確認と、クライアント IP ごとの制限・認証がない（`npm run relay` は Origin の確認を足している。IP ごとの制限と認証は、リバースプロキシで行う）。
+  内部への出口は、ファイアウォールなどネットワーク側でも塞ぐこと。
 - ⚠️ ネットワークをオンにすると、ゲストの中のプログラムは、リレーを通して外へ出られる。信頼できないコードを動かすときは、オフのままにする。
 - ⚠️ 名前の解決（DNS）は、v86 の内蔵の DNS が、ブラウザから DoH で行う（v86 のオプションの既定。リレーの通信先は IP アドレスで届いていた）。
   🔬 問い合わせ先の DoH サーバーは確認していない。
-- ⚠️ 通るのは TCP だけと理解している（v86 の WISP）。UDP と ping（ICMP）は試していない。
+- ⚠️ 通るのは TCP だけと理解している（v86 の WISP）。`npm run relay` は UDP を断る（DNS・DHCP・`apk`・`npm` はそれで通った）。UDP を使うアプリと ping（ICMP）は試していない。
 - リレーの URL は、利用者が欄に入れたものだけを使う（ブラウザの localStorage に保存）。リンクの `?relay=` などのパラメータは、自動テスト用の `?smoke=1` のときだけ効く。
 - NIC は ne2k（v86 の既定）。virtio も動くことを確認した。設定欄には出していない。
 
@@ -191,6 +204,11 @@ node tools/chunk-image.ts rootfs.img out/ --chunk-size=262144 --image-id=alpine-
   WISP リレー経由で、DHCP・DNS・HTTP・HTTPS・`apk update` / `apk add`・Python と Node.js の HTTPS・`npm view` / `npm install` が通る（ne2k と virtio の両方）。
   オフのときは lo だけ（外へは出ない）。fetch 方式は、HTTP の 80 番だけで、CORS を許可しない相手には届かない。
   設定の検査・保存・復元は、ユニットテストと、偽の v86 を使った実ブラウザでの確認（変異で検出を確認）。
+- ✅ **手元用のリレー**（`npm run relay` / `npm run relay:check`。2026-10-21）: 実物の wisp-js 0.5.0 に対する結合テスト（`test/relay.integration.test.ts` ほか 48 件。この環境と CI の両方）。
+  内部（ループバック・IPv4 マッピング・プライベート）に置いた見張り役の TCP サーバーに、リレー越しで届かないこと、ポート・UDP・Origin・パスの制限、
+  wisp-js の既定のままでは `::ffff:127.0.0.1` が断られないこと（対照）を確認。接続先の絞り込み・ポート・UDP・ループバックの許可・Origin・パス・IPv4 の正規形を壊す 7 通りの改悪で、それぞれテストが落ちる。
+  v86 + Alpine のゲストが、このリレー越しで DHCP・DNS・HTTPS・`apk`・Python・Node.js・`npm install` まで通る（CI の `tools/net-smoke.mjs`）。
+  🔬 未確認: TLS のリバースプロキシ（`wisps://`）、出口のファイアウォール、インターネット越しの遅延、複数人での利用（[docs/relay.md](./docs/relay.md) の「確認の状況」）。
 - ⚠️ **未確認**: 実際の Safari・モバイル・Windows / macOS。v86 + Alpine の起動は Chromium のみ（ネットワークも Chromium のみ）。実ブラウザで容量不足になったときの挙動。
   貼り付け・実際の IME 入力・`vim` など画面全体を使うプログラム。2 つ目のタブを開いたときのアプリの表示。GitHub Pages 上での**アプリ**の動作（Pages にはアプリを公開していない）。
   実物の xterm.js の見た目（画面のレイアウトは、偽のターミナルを使ってローカルで目視した。xterm.js の描画そのものは、人の目では見ていない）。
@@ -206,7 +224,7 @@ node tools/chunk-image.ts rootfs.img out/ --chunk-size=262144 --image-id=alpine-
 - ゲストの fsync を flush につなぐ手段（v86 の改造が必要。現状は受け入れている。ARCHITECTURE.md 4.3）
 - v86 の `save_state` / `restore_state` への対応（M6）
 - ネットワークの残り: 🔬 TLS 付きのリレー（`wisps://` / `wss://`）、https のページからの動作、インターネット越しのリレー、Firefox / WebKit での動作（いずれも未確認）。
-  公開リレーを運営するか（持ち主の判断。下の「ネットワーク」の注意）
+  公開リレーは運営しない（持ち主の決定、2026-10-20）。自分のサーバーで動かす手順は [docs/relay.md](./docs/relay.md)
 - チャンクの圧縮配信
 
 ## ライセンス

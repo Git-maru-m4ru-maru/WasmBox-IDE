@@ -17,6 +17,13 @@ npm run typecheck && npm test
 どちらも通る状態でコミットする。ブラウザ側の確認には `npm run poc` と `poc/selftest.html`（`poc/README.md` 参照）、ターミナルアプリは `npm run site:build && npm run site:serve`（README.md 参照）を使う。
 実ブラウザ + v86 の確認は、ローカルでは v86 を用意できないことがあるため、GitHub Actions（`.github/workflows/`）で行う。
 
+リレー（`tools/relay*`）を変えたときは、wisp-js を入れてから、リレーのテストを実行する（入っていないと、結合テストはスキップされる。CI の `relay` ジョブが同じことをする）:
+
+```sh
+npm install --no-save --package-lock=false @mercuryworkshop/wisp-js@0.5.0
+node --test test/relay.integration.test.ts test/relay-policy.test.ts test/relay-check-lib.test.ts
+```
+
 ## コードの規約
 
 - Node.js 22.18 以上で TypeScript を**そのまま実行**する（ビルド不要）。そのため **erasable な TypeScript だけ**を使う:
@@ -46,7 +53,9 @@ WasmBox 自身のコードは GPL-3.0-or-later（`LICENSE`。持ち主の決定�
 
 - `LICENSE` は書き換えない（`test/license.test.ts` が、全文が変わっていないことを確かめる）。
 - 他者のコードや部品（vendor するもの、イメージに入れるもの）を新しく含めるときは、GPL-3.0 と両立するライセンスかを確認して、`THIRD_PARTY_NOTICES.md` に書く。両立するか分からないものは、入れずに持ち主に聞く。
-- 持ち主が決めていないこと（アプリの公開、GPL の部品のソース提供の方法、公開リレーの運営）は、AI が決めない。
+- 持ち主が決めていないこと（アプリの公開、GPL の部品のソース提供の方法）は、AI が決めない。
+- 公開リレーは運営しない（持ち主の決定、2026-10-20）。リレーは、利用者が自分の手元・自分のサーバーで動かす。公開リレーを前提にする変更（既定のリレーの URL を置くなど）はしない。
+- wisp-js は WasmBox の依存パッケージにしない（`package.json` に入れない。`--no-save` で入れる）。
 - GitHub Pages は、ソースコードを見せるだけの一時的な公開（持ち主の方針、2026-10-19）。アプリ本体を載せない。
 
 ## コミットしないもの

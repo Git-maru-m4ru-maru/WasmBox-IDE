@@ -13,8 +13,8 @@ WasmBox のゲスト（ブラウザの中の Linux）は、そのままでは外
 |---|---|
 | `npm run relay`（手元用）の接続先フィルタ・Origin・ポート・UDP の制限 | ✅ 実物の wisp-js 0.5.0 に対する結合テスト（`test/relay.integration.test.ts`）。実装を壊すと落ちることも確認した |
 | `npm run relay:check`（フィルタの検査） | ✅ 同上。wisp-js の既定のままでは `::ffff:127.0.0.1` などで失敗し、`npm run relay` では成功することを確認した |
-| ゲストの通信（DHCP・DNS・HTTPS・`apk`・`npm`）が `npm run relay` 越しで通る | 🔬 [下の「確認の状況」](#確認の状況)を参照 |
-| Docker（`tools/relay/Dockerfile`） | 🔬 [下の「確認の状況」](#確認の状況)を参照 |
+| ゲストの通信（DHCP・DNS・HTTPS・`apk`・`npm`）が `npm run relay` 越しで通る | ✅ CI の実ブラウザ（v86 + Alpine）で、全ステップ成功。[下の「確認の状況」](#確認の状況)を参照 |
+| Docker（`tools/relay/Dockerfile`）のビルドと起動、起動したリレーへの `relay:check` | ✅ CI（`relay-docker` ジョブ）。[下の「確認の状況」](#確認の状況)を参照 |
 | TLS のリバースプロキシ（`wisps://`）、出口のファイアウォール、systemd | 🔬 実機で試していない |
 
 ## 1. 手元で使う（いちばん簡単で、いちばん安全）
@@ -122,7 +122,7 @@ npm run relay:check -- wisps://relay.example.com/
 
 リレーのログには、プロキシの IP が出る（`X-Forwarded-For` は信用しない設定）。クライアントの IP は、プロキシのログで見る。
 
-## 3. Docker で動かす 🔬
+## 3. Docker で動かす
 
 ```sh
 docker build -f tools/relay/Dockerfile -t wasmbox-relay .
@@ -134,7 +134,7 @@ docker run --rm --name wasmbox-relay -p 127.0.0.1:5001:5001 \
 
 - コンテナの中では `--host 0.0.0.0` で待ち受ける（Dockerfile の ENTRYPOINT）。外への公開は、`-p` で決める。
 - wisp-js は、イメージを作るときに `npm install` する（0.5.0 に固定）。
-- `--read-only` 以下は、権限を絞る例。🔬 この指定でも動くかは、試していない（動かなければ外す）。
+- `--read-only` 以下は、権限を絞る例。✅ この指定のまま、CI（`relay-docker`）でイメージを作って起動し、`relay:check` が通った。
 
 ## 4. 自分のサーバーに置くときの、最低限の対策
 
@@ -226,9 +226,20 @@ docker run --rm --network wasmbox-relay-net --entrypoint sh wasmbox-relay -c '
 
 ## 確認の状況
 
-- ✅ **フィルタ**（この環境で実物の wisp-js 0.5.0 を動かして確認。Node 22.22）: `test/relay.integration.test.ts` の 14 件（1 件は wisp-js が入っていないときだけ動く）。
+- ✅ **フィルタ**（実物の wisp-js 0.5.0 を動かして確認。この環境（Node 22.22）と、CI の `relay` ジョブ（npm の正式なパッケージ）の両方）:
+  `test/relay.integration.test.ts` と、`relay-policy`・`relay-check-lib` の単体テストで、合わせて 48 件（1 件は wisp-js が入っていないときだけ動く）。
   内部（ループバック・IPv4 マッピング・プライベート）に置いた見張り役のサーバーに、リレー越しで届かないこと、`--unsafe-allow-private` でも IPv4 マッピングは断ること、
   ポート・UDP・Origin・パスの制限、wisp-js の既定のままでは `::ffff:127.0.0.1` が断られないこと（対照）を確かめた。
-  実装をわざと壊す確認（接続先の絞り込みを外す、ポートの制限を外す、UDP を許す、ループバックを許す、Origin の確認を外す、パスの確認を外す、先頭が 0 の数字を許す）で、それぞれテストが落ちることを確認した。
-  ここで使った wisp-js は、GitHub の `v0.5.0` のソースと、依存の `ws` 8.21.3・`ipaddr.js` 2.4.0 のソースを、npm を使わずに置いたもの（この環境では npm のレジストリに届かないため）。CI では npm の正式なパッケージで、同じテストを行う。
-- 🔬 **未確認**: 上の表の 🔬 の項目。TLS 付きのプロキシ越し、インターネット越しの遅延、複数のユーザーの同時利用、Firefox / Safari のページからの接続、IPv6 だけのネットワーク、DNS の再束縛（このリレーは名前を受け付けないので、起きにくいはずだが、試していない）。
+  実装をわざと壊す確認（接続先の絞り込みを外す、ポートの制限を外す、UDP を許す、ループバックを許す、Origin の確認を外す、パスの確認を外す、IPv4 の正規形に先頭が 0 の数字を許す）の 7 通りで、
+  それぞれテストが落ちることを、2026-10-21 に取り直して確認した。
+  この環境で使った wisp-js は、GitHub の `v0.5.0` のソースと、依存の `ws` 8.21.3・`ipaddr.js` 2.4.0 のソースを、npm を使わずに置いたもの（この環境では npm のレジストリに届かないため）。CI では npm の正式なパッケージで、同じテストを行う。
+- ✅ **ゲストの通信**（CI の `tools/net-smoke.mjs`、Chromium 156 + v86 0.5 + Alpine。2026-10-21）: `npm run relay`（`--unsafe-allow-private --ports all`。UDP は既定のまま断る）越しで、
+  DHCP・DNS・runner への HTTP・8 MiB の転送・インターネットの HTTP / HTTPS・`apk update` / `apk add`・Python と Node.js の HTTPS・`npm view` / `npm install` が、ne2k と virtio の両方で成功した（警告・失敗は 0 件）。
+  つまり、v86 は IPv4 アドレスで接続を頼み、通常の通信に UDP は要らない。runner 上の通信先（9090 番）へ届けるために `--ports all` を付けたので、**既定の 80 / 443 だけの制限は、ゲストの通信では試していない**
+  （上の通信先はどれも 80 か 443）。
+- ✅ **Docker**（CI の `relay-docker` ジョブ）: 3 章の権限を絞った指定のまま、イメージを作って起動し、ホストから `relay:check` を実行して、必須の 19 項目がすべて断られた。
+  経緯: 1 回目の実行は失敗した（`relay:check` が終了コード 1。実行ログは取得できず、原因は直接は見ていない）。Docker は、公開したポートの接続を、コンテナの中のリレーが起動する前から受け付けるので、
+  起動の途中で `relay:check` が始まって接続が切られた、という競合と推測した。注釈を足しただけの 2 回目は成功し、起動待ちを「リレーが HTTP に答えるまで」に直した 3 回目も成功した。
+  競合が原因だったことは、確かめていない。
+- 🔬 **未確認**: 上の表の 🔬 の項目（TLS のリバースプロキシ越し、出口のファイアウォール、systemd）。インターネット越しの遅延、複数のユーザーの同時利用、Firefox / Safari のページからの接続、IPv6 だけのネットワーク、
+  DNS の再束縛（このリレーは名前を受け付けないので、起きにくいはずだが、試していない）、wisp-js の 0.5.0 以外の版。

@@ -51,12 +51,14 @@ WasmBox のリポジトリ自体にはこれらは入っていません（`poc/v
    アプリ（この文書の「配布物」）は載っていません。デプロイの記録から、公開元はこの開発ブランチと見られます（Pages の設定は、私は読めていません）。
    `site.yml` の `deploy` ジョブは `main` で手動実行したときだけ動き、Pages の公開元が「GitHub Actions」であることを前提にします（🔬 公式の手順は未確認）。
    アプリを公開するときは、持ち主が Pages の設定を確認してください。
-7. **ネットワークのリレー**: WasmBox は、リレー（WISP サーバー）を配布も運営もしません。利用者が自分のリレーの URL を入れます。
-   CI では `@mercuryworkshop/wisp-js` 0.5.0 を、テストのためだけに `npm install --no-save` で入れて使います（サイトには入りません）。
-   wisp-js 0.5.0 のライセンスは **LGPL-3.0**（2026-10-19。jsDelivr の同じ版の `LICENSE`・README・`package.json`（`LGPL-3.0-or-later`）の 3 つで一致）。
-   🔬 ただし、GitHub の最新の README を読んだときは「GNU AGPL v3」と読めた（AI が要約したもので、誤りの可能性もある）。版を上げるときは、ライセンスが変わっていないか、その版の `LICENSE` で確認すること。
-   AGPL なら、改変して公開リレーとして動かすと、利用者にソースを示す義務が出る（改変しなければ出ない、と理解している）。
-   公開リレーを運営するかどうかは、持ち主が決めることです（運営の費用・悪用への対策。README の「ネットワーク」）。
+7. **ネットワークのリレー**: WasmBox は、リレー（WISP サーバー）を配布も運営もしません（公開リレーは運営しない。持ち主の決定、2026-10-20）。利用者が自分のリレーの URL を入れます。
+   手元・自分のサーバー用に `tools/relay.mjs`（`npm run relay`）と `tools/relay/Dockerfile` がありますが、`@mercuryworkshop/wisp-js` は **WasmBox のリポジトリにも、サイトにも入りません**。
+   使うときに、利用者が `npm install --no-save` で入れます（Dockerfile は、利用者がイメージを作るときに入れます）。CI でも、テストのために同じ方法で入れます。
+   - wisp-js 0.5.0 のライセンスは **LGPL-3.0**。2026-10-21 に、GitHub の `v0.5.0` のタグ（このとき既定ブランチの先頭と同じ）の `LICENSE`（LGPL v3 の全文）・README・`package.json`（`LGPL-3.0-or-later`）が一致することを、実物で確かめた。
+     2026-10-19 の jsDelivr の同じ版でも一致していた。以前「GitHub の最新の README は AGPL と読めた」とメモしたが、それは AI の要約によるもので、README の本文を直接読むと LGPL v3 だった。版を上げるときは、その版の `LICENSE` で確認すること。
+   - wisp-js の依存: `ws`（MIT。`LICENSE` と `package.json` を確認）、`ipaddr.js`（MIT。同）、`commander`・`bufferutil`（🔬 未確認）。
+   - `tools/relay.mjs` は、wisp-js の API（`server.routeRequest`、`server.options`）を呼ぶだけで、wisp-js のコードを含みません。GPL-3.0-or-later の WasmBox から、LGPL-3.0 のライブラリを使うことは、両立すると理解しています（法的な助言ではありません）。
+   - 🔬 リレーの Docker イメージを**配布**する場合は、イメージに入る wisp-js と依存のライセンス表示・ソースの提供が必要になりえます。WasmBox は、いまイメージを配布しません。
 
 ## 確かめたこと・確かめていないこと
 
