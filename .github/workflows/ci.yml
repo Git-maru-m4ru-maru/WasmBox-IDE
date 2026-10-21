@@ -50,11 +50,16 @@ jobs:
           docker run -d --name wasmbox-relay -p 127.0.0.1:5001:5001 \
             --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 256 --memory 256m \
             wasmbox-relay --origin http://localhost:8080
-          for i in $(seq 1 30); do
-            if (echo > /dev/tcp/127.0.0.1/5001) 2>/dev/null; then break; fi
+          # 公開したポートは、コンテナの中のリレーが起動する前から、Docker が接続を受け付ける。
+          # TCP がつながるかではなく、リレーが HTTP に答える（WISP 以外は 404）まで待つ。
+          ready=0
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5001/ || true)
+            if [ "$code" = "404" ]; then ready=1; break; fi
             sleep 1
           done
           docker logs wasmbox-relay
+          if [ "$ready" != 1 ]; then echo "リレーが起動しません"; exit 1; fi
       - name: フィルタを検査する（必須の項目がすべて断られること）
         run: |
           set +e
