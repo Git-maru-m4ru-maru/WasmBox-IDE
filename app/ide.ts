@@ -264,14 +264,14 @@ export class BrowserIDE {
     const languages = this.#codeMirrorLanguages;
     if (!languages) return [];
 
-    if (/\\.(py|pyw)$/i.test(name)) return languages.python();
-    if (/\\.(js|mjs|cjs|jsx|ts|tsx)$/i.test(name)) {
-      return languages.javascript({ jsx: /\\.jsx?$/i.test(name), typescript: /\\.tsx?$/i.test(name) });
+    if (/\.(py|pyw)$/i.test(name)) return languages.python();
+    if (/\.(js|mjs|cjs|jsx|ts|tsx)$/i.test(name)) {
+      return languages.javascript({ jsx: /\.jsx?$/i.test(name), typescript: /\.tsx?$/i.test(name) });
     }
-    if (/\\.html?$/i.test(name)) return languages.html();
-    if (/\\.css$/i.test(name)) return languages.css();
-    if (/\\.json$/i.test(name)) return languages.json();
-    if (/\\.md$/i.test(name)) return languages.markdown();
+    if (/\.html?$/i.test(name)) return languages.html();
+    if (/\.css$/i.test(name)) return languages.css();
+    if (/\.json$/i.test(name)) return languages.json();
+    if (/\.md$/i.test(name)) return languages.markdown();
     return [];
   }
 
