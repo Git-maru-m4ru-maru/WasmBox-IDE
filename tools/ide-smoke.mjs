@@ -27,7 +27,12 @@ async function waitForRunButton(timeout = 15_000) {
 
 async function editFile(name, source) {
   await fileButton(name).click();
-  await page.locator("#code-editor").fill(source);
+  const codeMirrorEditor = page.locator("#code-editor-cm .cm-content");
+  if (await codeMirrorEditor.isVisible()) {
+    await codeMirrorEditor.fill(source);
+  } else {
+    await page.locator("#code-editor").fill(source);
+  }
 }
 
 async function runFile(name, source, expectedOutput) {
@@ -97,7 +102,7 @@ try {
   );
 
   assert.deepEqual(pageErrors, [], "IDE page errors: " + pageErrors.join(" / "));
-  console.log("WasmBox IDE smoke passed", JSON.stringify({ bootSeconds, runResults, persistedAfterReload: true }));
+  console.log("WasmBox IDE smoke passed", JSON.stringify({ bootSeconds, runResults, persistedAfterReload: true, editorEngine: await page.locator("#editor-body").getAttribute("data-editor-engine") }));
 } catch (error) {
   const details = {
     error: String(error?.stack ?? error),
