@@ -25,7 +25,7 @@ test("初期プロジェクトは有効で、Pythonファイルを選択して�
 test("ファイル名はパス区切りやシェル用の記号を拒否する", () => {
   assert.equal(validateFileName("hello.py"), undefined);
   assert.match(validateFileName("../secret.py") ?? "", /ファイル名/);
-  assert.match(validateFileName("x;id"), /ファイル名/);
+  assert.match(validateFileName("x;id") ?? "", /ファイル名/);
   assert.match(validateFileName("-danger.sh") ?? "", /先頭/);
 });
 
