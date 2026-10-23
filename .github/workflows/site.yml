@@ -15,6 +15,7 @@ on:
       - "tools/build-site.ts"
       - "tools/prepare-vendor.sh"
       - "tools/app-smoke.mjs"
+      - "tools/ide-smoke.mjs"
       - "tools/net-smoke.mjs"
       - "tools/step-judge.ts"
       - "tools/smoke-lib.mjs"
@@ -34,6 +35,7 @@ on:
       - "tools/build-site.ts"
       - "tools/prepare-vendor.sh"
       - "tools/app-smoke.mjs"
+      - "tools/ide-smoke.mjs"
       - "tools/net-smoke.mjs"
       - "tools/step-judge.ts"
       - "tools/smoke-lib.mjs"
@@ -90,6 +92,8 @@ jobs:
           exit 1
       - name: App smoke test (boot, type, Node.js, save, reload, reset)
         run: node tools/app-smoke.mjs
+      - name: IDE smoke test (Python / Node.js / Shell / IndexedDB)
+        run: node tools/ide-smoke.mjs
       # ネットワーク。2026-10-18 の実測で、通ると分かったものを検査にした（ARCHITECTURE.md 5.1）:
       #   失敗にする: オフ（lo だけ）、WISP リレー経由の DHCP・runner への HTTP・8 MiB の転送（ne2k と virtio）、fetch 方式の localhost:N
       #   警告にとどめる: インターネットに依存するもの（DNS・HTTPS・apk・Python・Node.js・npm）。外の事情で落ちうるため。
