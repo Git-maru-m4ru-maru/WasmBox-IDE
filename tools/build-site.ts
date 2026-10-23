@@ -58,6 +58,8 @@ for (const [from, to] of FILES) {
   await mkdir(join(SITE, to, ".."), { recursive: true });
   await cp(from, join(SITE, to));
 }
+await cp("app/ide.html", join(SITE, "ide.html"));
+
 // chunks/ は、中身（ハッシュ名のファイル）だけをコピーする。build.sh が置く `.gitignore` は含めない
 await cp(IMAGE_CHUNKS, join(SITE, "image/chunks"), { recursive: true, filter: (source) => basename(source) !== ".gitignore" });
 
