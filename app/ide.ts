@@ -10,6 +10,58 @@ import {
 import type { ProjectFile, ProjectState } from "./ide-core.ts";
 import { loadProjectState, saveProjectState } from "./project-store.ts";
 
+interface CodeMirrorDocument {
+  length: number;
+  toString(): string;
+}
+
+interface CodeMirrorUpdate {
+  docChanged: boolean;
+  state: { doc: { toString(): string } };
+}
+
+interface CodeMirrorEditorView {
+  state: { doc: CodeMirrorDocument };
+  dom: HTMLElement;
+  dispatch(transaction: {
+    changes?: { from: number; to: number; insert: string };
+    effects?: unknown[];
+  }): void;
+  focus(): void;
+}
+
+interface CodeMirrorCompartment {
+  of(extension: unknown): unknown;
+  reconfigure(extension: unknown): unknown;
+}
+
+interface CodeMirrorCore {
+  basicSetup: unknown;
+  EditorView: {
+    new(config: { parent: HTMLElement; state: unknown }): CodeMirrorEditorView;
+    updateListener: {
+      of(listener: (update: CodeMirrorUpdate) => void): unknown;
+    };
+    theme(spec: Record<string, unknown>): unknown;
+  };
+}
+
+interface CodeMirrorStateModule {
+  EditorState: {
+    create(config: { doc: string; extensions: unknown[] }): unknown;
+  };
+  Compartment: new () => CodeMirrorCompartment;
+}
+
+interface CodeMirrorLanguages {
+  python: () => unknown;
+  javascript: (options?: { jsx?: boolean; typescript?: boolean }) => unknown;
+  html: () => unknown;
+  css: () => unknown;
+  json: () => unknown;
+  markdown: () => unknown;
+}
+
 export interface BrowserIDEOptions {
   onRun: (files: readonly ProjectFile[], activeFile: string) => Promise<void>;
   onStop: () => void;
@@ -24,6 +76,10 @@ export class BrowserIDE {
   #runEnabled = false;
   #saving = false;
   #saveAgain = false;
+  #codeMirrorView: CodeMirrorEditorView | undefined;
+  #languageCompartment: CodeMirrorCompartment | undefined;
+  #codeMirrorLanguages: CodeMirrorLanguages | undefined;
+  #syncingCodeMirror = false;
 
   constructor(options: BrowserIDEOptions) {
     this.#options = options;
@@ -42,6 +98,7 @@ export class BrowserIDE {
     this.#renderEditor();
     this.#updateRunButtons();
     this.#setProjectSaveLabel("保存済み", "saved");
+    void this.#initializeCodeMirror();
   }
 
   setRunEnabled(enabled: boolean): void {
@@ -179,9 +236,125 @@ export class BrowserIDE {
       ? "Ctrl+Enter で実行"
       : "実行できるファイルを開いてください";
     this.#renderLineNumbers();
+    this.#syncCodeMirror(file?.name ?? "", editor.value);
     editor.scrollTop = 0;
     editor.scrollLeft = 0;
     this.#updateRunButtons();
+  }
+
+  #syncCodeMirror(name: string, value: string): void {
+    if (!this.#codeMirrorView || !this.#languageCompartment) return;
+
+    this.#syncingCodeMirror = true;
+    try {
+      this.#codeMirrorView.dispatch({
+        changes: {
+          from: 0,
+          to: this.#codeMirrorView.state.doc.length,
+          insert: value,
+        },
+        effects: [this.#languageCompartment.reconfigure(this.#languageExtension(name))],
+      });
+    } finally {
+      this.#syncingCodeMirror = false;
+    }
+  }
+
+  #languageExtension(name: string): unknown {
+    const languages = this.#codeMirrorLanguages;
+    if (!languages) return [];
+
+    if (/\\.(py|pyw)$/i.test(name)) return languages.python();
+    if (/\\.(js|mjs|cjs|jsx|ts|tsx)$/i.test(name)) {
+      return languages.javascript({ jsx: /\\.jsx?$/i.test(name), typescript: /\\.tsx?$/i.test(name) });
+    }
+    if (/\\.html?$/i.test(name)) return languages.html();
+    if (/\\.css$/i.test(name)) return languages.css();
+    if (/\\.json$/i.test(name)) return languages.json();
+    if (/\\.md$/i.test(name)) return languages.markdown();
+    return [];
+  }
+
+  async #initializeCodeMirror(): Promise<void> {
+    const urls = [
+      "https://esm.sh/codemirror@6.0.1",
+      "https://esm.sh/@codemirror/state@6.5.2",
+      "https://esm.sh/@codemirror/lang-python@6.2.1",
+      "https://esm.sh/@codemirror/lang-javascript@6.2.2",
+      "https://esm.sh/@codemirror/lang-html@6.4.9",
+      "https://esm.sh/@codemirror/lang-css@6.3.1",
+      "https://esm.sh/@codemirror/lang-json@6.0.2",
+      "https://esm.sh/@codemirror/lang-markdown@6.3.2",
+    ];
+
+    try {
+      const modules = await Promise.all(urls.map((url) => import(url)));
+      const core = modules[0] as unknown as CodeMirrorCore;
+      const state = modules[1] as unknown as CodeMirrorStateModule;
+
+      this.#codeMirrorLanguages = {
+        python: (modules[2] as unknown as { python: () => unknown }).python,
+        javascript: (modules[3] as unknown as { javascript: CodeMirrorLanguages["javascript"] }).javascript,
+        html: (modules[4] as unknown as { html: () => unknown }).html,
+        css: (modules[5] as unknown as { css: () => unknown }).css,
+        json: (modules[6] as unknown as { json: () => unknown }).json,
+        markdown: (modules[7] as unknown as { markdown: () => unknown }).markdown,
+      };
+
+      this.#languageCompartment = new state.Compartment();
+      const textarea = this.#element<HTMLTextAreaElement>("code-editor");
+      const host = this.#element<HTMLElement>("code-editor-cm");
+      const language = this.#languageExtension(this.#state.activeFile);
+
+      const extensions = [
+        core.basicSetup,
+        this.#languageCompartment.of(language),
+        core.EditorView.updateListener.of((update) => {
+          if (!update.docChanged || this.#syncingCodeMirror) return;
+
+          const file = this.#activeFile();
+          if (!file) return;
+
+          file.content = update.state.doc.toString();
+          textarea.value = file.content;
+          this.#setProjectSaveLabel("未保存", "pending");
+          this.#scheduleSave();
+        }),
+        core.EditorView.theme({
+          "&": { height: "100%", fontSize: "12px" },
+          ".cm-scroller": { fontFamily: "var(--mono)", lineHeight: "21px" },
+          ".cm-content": { padding: "15px 18px 28px" },
+          ".cm-gutters": { borderRight: "1px solid #edf0f6", background: "#fbfcff", color: "#9aa5b7" },
+        }),
+      ];
+
+      this.#codeMirrorView = new core.EditorView({
+        parent: host,
+        state: state.EditorState.create({ doc: textarea.value, extensions }),
+      });
+
+      host.hidden = false;
+      host.setAttribute("role", "region");
+      host.setAttribute("aria-label", "構文ハイライト付きコードエディタ");
+      document.getElementById("editor-body")?.classList.add("cm-ready");
+      document.getElementById("editor-body")?.setAttribute("data-editor-engine", "codemirror");
+
+      this.#codeMirrorView.dom.addEventListener("keydown", (event: KeyboardEvent) => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+          event.preventDefault();
+          void this.saveNow();
+        }
+
+        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+          event.preventDefault();
+          void this.runSelected();
+        }
+      });
+    } catch (error) {
+      document.getElementById("editor-body")?.setAttribute("data-editor-engine", "textarea");
+      this.#options.onNotify("構文ハイライトを読み込めなかったため、簡易エディタで続行します。", true);
+      console.error(error);
+    }
   }
 
   #languageLabel(name: string): string {
