@@ -29,6 +29,20 @@ test("ファイル名はパス区切りやシェル用の記号を拒否する",
   assert.match(validateFileName("-danger.sh") ?? "", /先頭/);
 });
 
+
+test("ファイル名はシェル展開やコマンド区切りに使える文字を拒否する", () => {
+  for (const name of [
+    "$(touch pwned).py",
+    "`touch pwned`.py",
+    "x'y.py",
+    "x|id.py",
+    "x name.py",
+    "x\nid.py",
+  ]) {
+    assert.notEqual(validateFileName(name), undefined, name);
+  }
+});
+
 test("拡張子ごとに利用するランタイムを選ぶ", () => {
   assert.equal(runtimeForFile("main.py"), "python3");
   assert.equal(runtimeForFile("app.MJS"), "node");
