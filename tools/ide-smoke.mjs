@@ -64,6 +64,15 @@ try {
     { timeout: BOOT_TIMEOUT_MS, polling: 250 },
   );
 
+  await page.waitForFunction(
+    () => {
+      const engine = document.getElementById("editor-body")?.getAttribute("data-editor-engine");
+      return engine === "codemirror" || engine === "textarea";
+    },
+    undefined,
+    { timeout: 20_000 },
+  );
+
   await waitForRunButton();
   const bootSeconds = Number(((Date.now() - startedAt) / 1000).toFixed(1));
 
@@ -108,6 +117,11 @@ try {
     error: String(error?.stack ?? error),
     status: await page.locator("#runtime-status").textContent().catch(() => "(unavailable)"),
     notice: await page.locator("#notice").textContent().catch(() => "(unavailable)"),
+    editorEngine: await page.locator("#editor-body").getAttribute("data-editor-engine").catch(() => "(unavailable)"),
+    activeFile: await page.locator("#active-file-name").textContent().catch(() => "(unavailable)"),
+    textareaValue: await page.locator("#code-editor").inputValue().catch(() => "(unavailable)"),
+    codeMirrorText: await page.locator("#code-editor-cm .cm-content").innerText().catch(() => "(unavailable)"),
+    output: await page.locator("body > section > pre").textContent().catch(() => "(unavailable)"),
     pageErrors,
     runResults,
   };
