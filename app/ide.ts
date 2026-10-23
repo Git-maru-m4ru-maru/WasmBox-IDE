@@ -340,14 +340,14 @@ export class BrowserIDE {
 
   async #initializeCodeMirror(): Promise<void> {
     const urls = [
-      "https://esm.sh/codemirror@6.0.1",
-      "https://esm.sh/@codemirror/state@6.5.2",
-      "https://esm.sh/@codemirror/lang-python@6.2.1",
-      "https://esm.sh/@codemirror/lang-javascript@6.2.2",
-      "https://esm.sh/@codemirror/lang-html@6.4.9",
-      "https://esm.sh/@codemirror/lang-css@6.3.1",
-      "https://esm.sh/@codemirror/lang-json@6.0.2",
-      "https://esm.sh/@codemirror/lang-markdown@6.3.2",
+      "https://esm.sh/codemirror@6.0.1?bundle=false&deps=@codemirror/view@6.38.6",
+      "https://esm.sh/@codemirror/state@6.5.2?bundle=false&deps=@codemirror/view@6.38.6",
+      "https://esm.sh/@codemirror/lang-python@6.2.1?bundle=false&deps=@codemirror/view@6.38.6",
+      "https://esm.sh/@codemirror/lang-javascript@6.2.2?bundle=false&deps=@codemirror/view@6.38.6",
+      "https://esm.sh/@codemirror/lang-html@6.4.9?bundle=false&deps=@codemirror/view@6.38.6",
+      "https://esm.sh/@codemirror/lang-css@6.3.1?bundle=false&deps=@codemirror/view@6.38.6",
+      "https://esm.sh/@codemirror/lang-json@6.0.2?bundle=false&deps=@codemirror/view@6.38.6",
+      "https://esm.sh/@codemirror/lang-markdown@6.3.2?bundle=false&deps=@codemirror/view@6.38.6",
     ];
 
     try {
