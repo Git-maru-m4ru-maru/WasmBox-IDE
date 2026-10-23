@@ -188,6 +188,7 @@ export class BrowserIDE {
 
       button.append(icon, name);
       button.addEventListener("click", () => {
+        this.#syncModelFromCodeMirror();
         this.#state.activeFile = file.name;
         this.#renderFiles();
         this.#renderEditor();
@@ -240,6 +241,23 @@ export class BrowserIDE {
     editor.scrollTop = 0;
     editor.scrollLeft = 0;
     this.#updateRunButtons();
+  }
+
+  #syncModelFromCodeMirror(scheduleSave = true): void {
+    const view = this.#codeMirrorView;
+    const file = this.#activeFile();
+    if (!view || !file || this.#syncingCodeMirror) return;
+
+    const content = view.state.doc.toString();
+    if (file.content === content) return;
+
+    file.content = content;
+    this.#element<HTMLTextAreaElement>("code-editor").value = content;
+
+    if (scheduleSave) {
+      this.#setProjectSaveLabel("未保存", "pending");
+      this.#scheduleSave();
+    }
   }
 
   #syncCodeMirror(name: string, value: string): void {
@@ -311,14 +329,7 @@ export class BrowserIDE {
         this.#languageCompartment.of(language),
         core.EditorView.updateListener.of((update) => {
           if (!update.docChanged || this.#syncingCodeMirror) return;
-
-          const file = this.#activeFile();
-          if (!file) return;
-
-          file.content = update.state.doc.toString();
-          textarea.value = file.content;
-          this.#setProjectSaveLabel("未保存", "pending");
-          this.#scheduleSave();
+          this.#syncModelFromCodeMirror();
         }),
         core.EditorView.theme({
           "&": { height: "100%", fontSize: "12px" },
@@ -404,6 +415,7 @@ export class BrowserIDE {
       return;
     }
 
+    this.#syncModelFromCodeMirror();
     this.#state.files.push({ name, content: "" });
     this.#state.activeFile = name;
     this.#closeNewFileForm();
@@ -413,6 +425,7 @@ export class BrowserIDE {
   }
 
   async saveNow(): Promise<void> {
+    this.#syncModelFromCodeMirror(false);
     if (this.#saveTimer) clearTimeout(this.#saveTimer);
     this.#saveTimer = undefined;
     try {
@@ -436,6 +449,7 @@ export class BrowserIDE {
   }
 
   async #persist(): Promise<void> {
+    this.#syncModelFromCodeMirror(false);
     if (this.#saving) {
       this.#saveAgain = true;
       return;
@@ -464,6 +478,7 @@ export class BrowserIDE {
 
   async runSelected(): Promise<void> {
     if (!this.#runEnabled || this.#isRunning) return;
+    this.#syncModelFromCodeMirror(false);
     const file = this.#activeFile();
     if (!file) {
       this.#options.onNotify("実行するファイルを選んでください。");
@@ -506,6 +521,7 @@ export class BrowserIDE {
   }
 
   #exportProject(): void {
+    this.#syncModelFromCodeMirror(false);
     const problem = validateProjectState(this.#state);
     if (problem) {
       this.#options.onNotify(problem, true);
