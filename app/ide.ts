@@ -28,11 +28,7 @@ interface CodeMirrorEditorView {
     effects?: unknown[];
   }): void;
   focus(): void;
-}
-
-interface CodeMirrorCompartment {
-  of(extension: unknown): unknown;
-  reconfigure(extension: unknown): unknown;
+  destroy(): void;
 }
 
 interface CodeMirrorCore {
@@ -50,7 +46,6 @@ interface CodeMirrorStateModule {
   EditorState: {
     create(config: { doc: string; extensions: unknown[] }): unknown;
   };
-  Compartment: new () => CodeMirrorCompartment;
 }
 
 interface CodeMirrorLanguages {
@@ -77,7 +72,8 @@ export class BrowserIDE {
   #saving = false;
   #saveAgain = false;
   #codeMirrorView: CodeMirrorEditorView | undefined;
-  #languageCompartment: CodeMirrorCompartment | undefined;
+  #codeMirrorCore: CodeMirrorCore | undefined;
+  #codeMirrorState: CodeMirrorStateModule | undefined;
   #codeMirrorLanguages: CodeMirrorLanguages | undefined;
   #syncingCodeMirror = false;
 
@@ -261,21 +257,70 @@ export class BrowserIDE {
   }
 
   #syncCodeMirror(name: string, value: string): void {
-    if (!this.#codeMirrorView || !this.#languageCompartment) return;
+    if (!this.#codeMirrorCore || !this.#codeMirrorState || !this.#codeMirrorLanguages) return;
 
-    this.#syncingCodeMirror = true;
     try {
-      this.#codeMirrorView.dispatch({
-        changes: {
-          from: 0,
-          to: this.#codeMirrorView.state.doc.length,
-          insert: value,
-        },
-        effects: [this.#languageCompartment.reconfigure(this.#languageExtension(name))],
-      });
-    } finally {
-      this.#syncingCodeMirror = false;
+      this.#mountCodeMirror(name, value);
+    } catch (error) {
+      this.#codeMirrorView?.destroy();
+      this.#codeMirrorView = undefined;
+      document.getElementById("editor-body")?.classList.remove("cm-ready");
+      document.getElementById("editor-body")?.setAttribute("data-editor-engine", "textarea");
+      this.#options.onNotify("構文ハイライトを切り替えられなかったため、簡易エディタで続行します。", true);
+      console.error(error);
     }
+  }
+
+  #mountCodeMirror(name: string, value: string): void {
+    const core = this.#codeMirrorCore;
+    const state = this.#codeMirrorState;
+    if (!core || !state) return;
+
+    this.#codeMirrorView?.destroy();
+    this.#codeMirrorView = undefined;
+
+    const host = this.#element<HTMLElement>("code-editor-cm");
+    const textarea = this.#element<HTMLTextAreaElement>("code-editor");
+    host.replaceChildren();
+
+    const extensions = [
+      core.basicSetup,
+      this.#languageExtension(name),
+      core.EditorView.updateListener.of((update) => {
+        if (!update.docChanged || this.#syncingCodeMirror) return;
+        this.#syncModelFromCodeMirror();
+      }),
+      core.EditorView.theme({
+        "&": { height: "100%", fontSize: "12px" },
+        ".cm-scroller": { fontFamily: "var(--mono)", lineHeight: "21px" },
+        ".cm-content": { padding: "15px 18px 28px" },
+        ".cm-gutters": { borderRight: "1px solid #edf0f6", background: "#fbfcff", color: "#9aa5b7" },
+      }),
+    ];
+
+    this.#codeMirrorView = new core.EditorView({
+      parent: host,
+      state: state.EditorState.create({ doc: value, extensions }),
+    });
+
+    host.hidden = false;
+    host.setAttribute("role", "region");
+    host.setAttribute("aria-label", "構文ハイライト付きコードエディタ");
+    document.getElementById("editor-body")?.classList.add("cm-ready");
+    document.getElementById("editor-body")?.setAttribute("data-editor-engine", "codemirror");
+    textarea.value = value;
+
+    this.#codeMirrorView.dom.addEventListener("keydown", (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void this.saveNow();
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        void this.runSelected();
+      }
+    });
   }
 
   #languageExtension(name: string): unknown {
@@ -319,49 +364,14 @@ export class BrowserIDE {
         markdown: (modules[7] as unknown as { markdown: () => unknown }).markdown,
       };
 
-      this.#languageCompartment = new state.Compartment();
+      this.#codeMirrorCore = core;
+      this.#codeMirrorState = state;
       const textarea = this.#element<HTMLTextAreaElement>("code-editor");
-      const host = this.#element<HTMLElement>("code-editor-cm");
-      const language = this.#languageExtension(this.#state.activeFile);
-
-      const extensions = [
-        core.basicSetup,
-        this.#languageCompartment.of(language),
-        core.EditorView.updateListener.of((update) => {
-          if (!update.docChanged || this.#syncingCodeMirror) return;
-          this.#syncModelFromCodeMirror();
-        }),
-        core.EditorView.theme({
-          "&": { height: "100%", fontSize: "12px" },
-          ".cm-scroller": { fontFamily: "var(--mono)", lineHeight: "21px" },
-          ".cm-content": { padding: "15px 18px 28px" },
-          ".cm-gutters": { borderRight: "1px solid #edf0f6", background: "#fbfcff", color: "#9aa5b7" },
-        }),
-      ];
-
-      this.#codeMirrorView = new core.EditorView({
-        parent: host,
-        state: state.EditorState.create({ doc: textarea.value, extensions }),
-      });
-
-      host.hidden = false;
-      host.setAttribute("role", "region");
-      host.setAttribute("aria-label", "構文ハイライト付きコードエディタ");
-      document.getElementById("editor-body")?.classList.add("cm-ready");
-      document.getElementById("editor-body")?.setAttribute("data-editor-engine", "codemirror");
-
-      this.#codeMirrorView.dom.addEventListener("keydown", (event: KeyboardEvent) => {
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
-          event.preventDefault();
-          void this.saveNow();
-        }
-
-        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-          event.preventDefault();
-          void this.runSelected();
-        }
-      });
+      this.#mountCodeMirror(this.#state.activeFile, textarea.value);
     } catch (error) {
+      this.#codeMirrorView?.destroy();
+      this.#codeMirrorView = undefined;
+      document.getElementById("editor-body")?.classList.remove("cm-ready");
       document.getElementById("editor-body")?.setAttribute("data-editor-engine", "textarea");
       this.#options.onNotify("構文ハイライトを読み込めなかったため、簡易エディタで続行します。", true);
       console.error(error);
