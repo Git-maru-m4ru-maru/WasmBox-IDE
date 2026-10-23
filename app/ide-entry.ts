@@ -106,7 +106,7 @@ async function waitForMarker(marker: string, timeoutMs = 30_000): Promise<void> 
   const started = Date.now();
 
   while (Date.now() - started < timeoutMs) {
-    if (terminalText().includes(marker)) return;
+    if (terminalText().split(/\r?\n/).some((line) => line.trim() === marker)) return;
     await delay(40);
   }
 
