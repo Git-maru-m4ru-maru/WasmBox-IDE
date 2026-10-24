@@ -108,12 +108,17 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
   display: flex; align-items: stretch; min-height: 35px; overflow: hidden;
   background: #181818; border-bottom: 1px solid var(--line);
 }
-.active-tab {
-  display: flex; align-items: center; gap: 8px; min-width: 100px; max-width: min(320px, 60%);
-  padding: 0 12px; border-top: 1px solid var(--accent); border-right: 1px solid var(--line);
-  background: var(--editor); color: #fff; font-size: 12px;
-}
-.active-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.open-tabs { display: flex; align-items: stretch; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.open-tabs::-webkit-scrollbar { display: none; }
+.editor-tab { display: flex; flex: 0 0 auto; align-items: stretch; max-width: 250px; min-width: 0; border-right: 1px solid var(--line); background: #181818; }
+.editor-tab.active { border-top: 1px solid var(--accent); background: var(--editor); }
+.editor-tab-main { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 0 5px 0 12px; border: 0; background: transparent; color: var(--muted); font-size: 12px; text-align: left; }
+.editor-tab-main:hover { color: var(--ink); }
+.editor-tab.active .editor-tab-main { color: #fff; }
+.editor-tab-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-tab-close { display: grid; place-items: center; align-self: center; flex: 0 0 20px; width: 20px; height: 20px; margin: 0 4px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--muted); font-size: 15px; line-height: 1; visibility: hidden; }
+.editor-tab:hover .editor-tab-close, .editor-tab.active .editor-tab-close, .editor-tab-close:focus-visible { visibility: visible; }
+.editor-tab-close:hover { background: #3a3d41; color: #fff; }
 #project-save-label { color: var(--muted); font-size: 10px; }
 #project-save-label[data-save=saved] { color: #89d185; }
 #project-save-label[data-save=pending] { color: #e6c875; }
@@ -177,7 +182,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
   .file-type-icon { flex-basis: 17px; width: 17px; font-size: 8px; }
   .button.quiet { display: none; }
   .button.primary { min-width: 56px; }
-  .active-tab { min-width: 0; padding: 0 7px; }
+  .editor-tab-main { padding-left: 7px; }
   .status-left .status-optional { display: none; }
   #notice { max-width: 28vw; }
 }
@@ -214,12 +219,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
     </form>
   </aside>
   <main class="editor-panel" aria-label="コードエディタ">
-    <div class="editor-tabbar" role="tablist" aria-label="開いているファイル">
-      <div class="active-tab" role="tab" aria-selected="true">
-        <span id="active-file-icon" class="file-type-icon python" aria-hidden="true">PY</span>
-        <span id="active-file-name" class="active-file">main.py</span>
-        <span id="project-save-label" data-save="saved" role="status" title="自動保存の状態">●</span>
-      </div>
+    <div class="editor-tabbar">
+      <div id="open-tabs" class="open-tabs" role="tablist" aria-label="開いているファイル"></div>
       <div class="editor-tab-spacer"></div>
       <div class="editor-toolbar"><span id="language-label">Python 3</span></div>
     </div>
@@ -245,6 +246,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
         <span class="status-item status-optional">Spaces: 2</span>
       </div>
       <div class="status-right">
+        <span id="project-save-label" data-save="saved" role="status" title="自動保存の状態">●</span>
         <span id="notice" role="status" aria-live="polite">Linux を起動しています。</span>
         <span class="status-item status-optional">WasmBox</span>
       </div>
