@@ -24,11 +24,9 @@ npm run site:build           # site/ を組み立てる
 npm run site:serve           # http://127.0.0.1:8080/ を開く
 ```
 
-CI（`.github/workflows/site.yml`）が、同じ手順でビルドして実ブラウザで確かめる。
-方針（2026-10-19）として、アプリは Pages に載せない。`site.yml` の `deploy` ジョブと、Pages 用の成果物の作成は、将来アプリを公開する場合のために残してあり、`main` で手動実行したときだけ動く。
-🔬 `deploy` ジョブは、Pages の公開元が「GitHub Actions」であることを前提にする。いまの Pages は、ブランチから直接公開しているように見えるので、
-アプリを公開するときは、持ち主が Pages の設定（Settings → Pages → Source）を変える必要がある（私は設定を変えていない。公式の手順は未確認）。
-
+CI（.github/workflows/site.yml）は、同じ手順でビルドして実ブラウザで検証する。ワークフローには GitHub Pages への手動デプロイも用意してあり、通常の push だけでは公開されない。
+IDE を公開するには、リポジトリの Settings → Pages → Build and deployment → Source を「GitHub Actions」に設定し、Actions → Site (terminal app) から main を選んで Run workflow を実行する。公開後の IDE はサイト URL の末尾に ide.html を付けたページになる。
+公開前に仮想 Linux・v86・xterm.js などの配布条件を確認すること。詳細は [docs/PUBLISHING.md](./docs/PUBLISHING.md)。
 ## 構成
 
 | パス | 内容 |

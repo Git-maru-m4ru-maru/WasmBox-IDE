@@ -27,7 +27,12 @@ async function waitForRunButton(timeout = 15_000) {
 
 async function editFile(name, source) {
   await fileButton(name).click();
-  await page.locator("#code-editor").fill(source);
+  const codeMirrorEditor = page.locator("#code-editor-cm .cm-content");
+  if (await codeMirrorEditor.isVisible()) {
+    await codeMirrorEditor.fill(source);
+  } else {
+    await page.locator("#code-editor").fill(source);
+  }
 }
 
 async function runFile(name, source, expectedOutput) {
@@ -57,6 +62,15 @@ try {
     () => document.getElementById("runtime-status")?.dataset.state === "ready",
     undefined,
     { timeout: BOOT_TIMEOUT_MS, polling: 250 },
+  );
+
+  await page.waitForFunction(
+    () => {
+      const engine = document.getElementById("editor-body")?.getAttribute("data-editor-engine");
+      return engine === "codemirror" || engine === "textarea";
+    },
+    undefined,
+    { timeout: 20_000 },
   );
 
   await waitForRunButton();
@@ -97,12 +111,17 @@ try {
   );
 
   assert.deepEqual(pageErrors, [], "IDE page errors: " + pageErrors.join(" / "));
-  console.log("WasmBox IDE smoke passed", JSON.stringify({ bootSeconds, runResults, persistedAfterReload: true }));
+  console.log("WasmBox IDE smoke passed", JSON.stringify({ bootSeconds, runResults, persistedAfterReload: true, editorEngine: await page.locator("#editor-body").getAttribute("data-editor-engine") }));
 } catch (error) {
   const details = {
     error: String(error?.stack ?? error),
     status: await page.locator("#runtime-status").textContent().catch(() => "(unavailable)"),
     notice: await page.locator("#notice").textContent().catch(() => "(unavailable)"),
+    editorEngine: await page.locator("#editor-body").getAttribute("data-editor-engine").catch(() => "(unavailable)"),
+    activeFile: await page.locator("#active-file-name").textContent().catch(() => "(unavailable)"),
+    textareaValue: await page.locator("#code-editor").inputValue().catch(() => "(unavailable)"),
+    codeMirrorText: await page.locator("#code-editor-cm .cm-content").innerText().catch(() => "(unavailable)"),
+    output: await page.locator("body > section > pre").textContent().catch(() => "(unavailable)"),
     pageErrors,
     runResults,
   };
