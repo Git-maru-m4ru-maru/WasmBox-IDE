@@ -4,49 +4,253 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WasmBox IDE</title>
-<meta name="description" content="ブラウザ内のLinuxでPythonとNode.jsを実行するサーバーレスIDE">
+<meta name="description" content="ブラウザ内のLinuxでPythonとNode.jsを実行するIDE">
 <link rel="icon" href="data:,">
 <style>
-:root{color-scheme:light;--page:#f5f7fb;--surface:#fff;--ink:#172033;--muted:#657087;--line:#dce3ef;--accent:#2459c4;--soft:#eaf1ff;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",sans-serif}
-*{box-sizing:border-box}html,body{height:100%;width:100%;margin:0}body{display:flex;flex-direction:column;overflow:hidden;background:var(--page);color:var(--ink);font:14px/1.5 var(--sans)}button,input,textarea{font:inherit}button{cursor:pointer;color:inherit}button:disabled{opacity:.45;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}[hidden]{display:none!important}
-.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:58px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:10px}.brand-mark{display:grid;place-items:center;width:31px;height:31px;border-radius:7px;background:var(--soft);color:var(--accent);font-weight:800}.brand-title{font-size:15px;font-weight:750}.brand-subtitle{font-size:11px;color:var(--muted)}.actions{display:flex;align-items:center;flex-wrap:wrap;gap:6px}.button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:32px;padding:5px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font-size:12px;font-weight:650;white-space:nowrap}.button:hover:not(:disabled){border-color:#a9bce5;background:#f7f9ff}.button.primary{background:var(--accent);border-color:var(--accent);color:white}.button.danger{color:#a52c38}.button.small{min-height:27px;padding:4px 8px;font-size:11px}.status-pill{padding:5px 9px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:11px;white-space:nowrap}.status-pill[data-state=ready]{background:#edf9f2;border-color:#cdebd8;color:#218454}.status-pill[data-state=error]{background:#fff0f1;border-color:#f0c6ca;color:#c43f48}
-.workspace{display:grid;grid-template-columns:220px minmax(0,1fr);flex:1;min-height:0}.sidebar{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--surface);border-right:1px solid var(--line)}.sidebar-heading{display:flex;justify-content:space-between;align-items:center;min-height:44px;padding:0 12px 0 16px;color:var(--muted);border-bottom:1px solid var(--line);font-size:10px;font-weight:800;letter-spacing:.1em}.icon-button{width:27px;height:27px;border:1px solid transparent;border-radius:5px;background:transparent;color:#42506a;font-size:17px}.icon-button:hover{border-color:var(--line);background:#f8faff}.project-heading{padding:14px 15px 8px;font-size:12px;font-weight:750;color:#26334b}#file-tree{padding:0 7px;overflow:auto}.file-row{display:flex;align-items:center;gap:9px;width:100%;min-height:33px;padding:5px 8px;border:1px solid transparent;border-radius:5px;background:transparent;text-align:left;color:#344158;font-size:12px}.file-row:hover{background:#f5f7fc}.file-row.active{border-color:#dbe6ff;background:var(--soft);color:#17459c}.file-type-icon{display:inline-grid;place-items:center;flex:0 0 23px;width:23px;height:20px;border-radius:4px;font:750 9px var(--mono);background:#edf0f5;color:#5e6c83}.file-type-icon.python{background:#e7f0ff;color:#3566ad}.file-type-icon.javascript{background:#fff3c9;color:#84620a}.file-type-icon.shell{background:#e5f5e9;color:#3b7751}.file-type-icon.json{background:#fff0db;color:#8b531d}.file-type-icon.html{background:#ffebe4;color:#a64b2b}.file-type-icon.css{background:#f0eaff;color:#674cbd}.file-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#new-file-form{display:grid;gap:7px;padding:8px 12px}#new-file-name{width:100%;min-width:0;padding:7px 8px;border:1px solid #b9c9e5;border-radius:5px;background:#fff;font:12px var(--mono)}.new-file-actions{display:flex;gap:5px}.new-file-actions button{flex:1}#new-file-error{color:#c43f48;font-size:11px}.sidebar-footer{margin-top:auto;padding:9px 10px 12px;border-top:1px solid var(--line)}#file-count{margin:0 5px 8px;color:var(--muted);font-size:10px}
-.editor-panel{display:flex;flex-direction:column;min-width:0;min-height:0}.editor-tabbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;min-height:43px;padding:0 13px;background:var(--surface);border-bottom:1px solid var(--line)}.active-tab{display:flex;align-items:center;gap:10px;min-width:0;font-size:12px}.active-file{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#project-save-label{color:var(--muted);font-size:10px}#project-save-label[data-save=saved]{color:#218454}#project-save-label[data-save=pending]{color:#a96b08}#project-save-label[data-save=error]{color:#c43f48}.editor-tools{display:flex;align-items:center;gap:6px}.keyboard-hint{color:#8c96a8;font-size:10px}.editor-body{display:grid;grid-template-columns:48px minmax(0,1fr);flex:1;min-width:0;min-height:0;overflow:hidden;background:#fff}#line-numbers{margin:0;padding:15px 10px 24px 0;overflow:hidden;border-right:1px solid #edf0f6;background:#fbfcff;color:#9aa5b7;text-align:right;white-space:pre;user-select:none;font:12px/21px var(--mono)}.editor-surface{position:relative;min-width:0;min-height:0;overflow:hidden}#code-editor{position:absolute;inset:0;display:block;width:100%;height:100%;min-width:0;min-height:0;resize:none;padding:15px 18px 28px;border:0;outline:none;background:#fff;color:#172033;tab-size:2;white-space:pre;overflow:auto;font:12px/21px var(--mono)}.cm-host{position:absolute;inset:0;display:none;min-width:0;min-height:0;overflow:hidden;background:#fff}.cm-host .cm-editor{height:100%;font-size:12px}.cm-host .cm-scroller{overflow:auto;font-family:var(--mono);line-height:21px}.editor-body.cm-ready #line-numbers{display:none}.editor-body.cm-ready #code-editor{display:none}.editor-body.cm-ready .cm-host{display:block}.editor-statusbar{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;min-height:27px;padding:4px 14px;border-top:1px solid #e8edf5;background:#fbfcff;color:var(--muted);font-size:10px}.editor-status-left,.editor-status-right{display:flex;align-items:center;gap:13px}.bottom-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:30px;padding:0 12px;border-top:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:10px}#notice{max-width:65vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}.linux-runtime{position:fixed;left:-20px;top:0;width:4px;height:4px;overflow:hidden;opacity:.001;pointer-events:none}#linux-frame{width:4px;height:4px;border:0}
-@media(max-width:760px){.topbar{padding:0 8px}.brand-subtitle{display:none}.workspace{grid-template-columns:150px minmax(0,1fr)}.actions{gap:4px}.actions .button{padding:5px 7px}.editor-tools .keyboard-hint{display:none}}
+:root {
+  color-scheme: dark;
+  --chrome: #181818;
+  --sidebar: #181818;
+  --surface: #1f1f1f;
+  --editor: #1e1e1e;
+  --panel: #181818;
+  --ink: #d4d4d4;
+  --muted: #9da0a6;
+  --faint: #727780;
+  --line: #303033;
+  --line-strong: #414144;
+  --accent: #3794ff;
+  --accent-soft: #264f78;
+  --selection: #264f78;
+  --mono: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Yu Gothic UI", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; overflow: hidden; background: var(--editor); color: var(--ink); font: 13px/1.45 var(--sans); }
+button, input, textarea { font: inherit; }
+button { color: inherit; cursor: pointer; }
+button:disabled { cursor: default; opacity: .45; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+[hidden] { display: none !important; }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  flex: 0 0 42px; min-width: 0; padding: 0 12px 0 15px;
+  background: var(--chrome); border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--ink); text-decoration: none; white-space: nowrap; }
+.brand-name { font-size: 13px; font-weight: 600; letter-spacing: .01em; }
+.brand-separator { color: var(--faint); }
+.brand-context { color: var(--muted); font-size: 12px; }
+.actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; }
+.button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 28px; padding: 4px 10px; border: 1px solid transparent;
+  border-radius: 3px; background: transparent; color: var(--ink);
+  font-size: 12px; white-space: nowrap;
+}
+.button:hover:not(:disabled) { background: #2a2d2e; }
+.button.primary { min-width: 76px; background: #0e639c; color: #fff; }
+.button.primary:hover:not(:disabled) { background: #1177bb; }
+.button.danger { color: #f48771; }
+.button.danger:hover:not(:disabled) { background: #492b2b; }
+.button.quiet { border-color: var(--line-strong); }
+.run-glyph { color: #fff; font-size: 10px; }
+.project-menu { position: relative; }
+.project-menu summary {
+  display: grid; place-items: center; width: 29px; height: 28px; border-radius: 3px;
+  color: var(--muted); list-style: none; cursor: pointer; font-size: 18px; line-height: 1;
+}
+.project-menu summary::-webkit-details-marker { display: none; }
+.project-menu summary:hover, .project-menu[open] summary { background: #2a2d2e; color: var(--ink); }
+.project-menu-panel {
+  position: absolute; z-index: 20; top: 33px; right: 0; width: 190px; padding: 4px;
+  background: #252526; border: 1px solid var(--line-strong); box-shadow: 0 8px 18px #0005;
+}
+.menu-item { display: block; width: 100%; padding: 7px 9px; border: 0; border-radius: 2px; background: transparent; text-align: left; color: var(--ink); font-size: 12px; }
+.menu-item:hover { background: #2a2d2e; }
+.workspace { display: grid; grid-template-columns: 232px minmax(0, 1fr); flex: 1; min-height: 0; }
+.sidebar { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--sidebar); border-right: 1px solid var(--line); }
+.sidebar-heading {
+  display: flex; align-items: center; justify-content: space-between; min-height: 35px; padding: 0 10px 0 18px;
+  color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .045em; text-transform: uppercase;
+}
+.icon-button { display: grid; place-items: center; width: 25px; height: 25px; border: 0; border-radius: 3px; background: transparent; color: var(--muted); font-size: 18px; }
+.icon-button:hover { background: #2a2d2e; color: var(--ink); }
+.project-heading { display: flex; align-items: center; gap: 6px; min-height: 29px; padding: 0 12px; color: var(--ink); font-size: 11px; font-weight: 600; letter-spacing: .035em; }
+.project-caret { color: var(--muted); font-size: 10px; }
+#file-tree { overflow: auto; padding: 1px 0 8px; }
+.file-row {
+  display: flex; align-items: center; gap: 7px; width: 100%; min-height: 27px; padding: 3px 10px 3px 17px;
+  border: 0; border-radius: 0; border-left: 2px solid transparent; background: transparent;
+  color: #c5c5c5; text-align: left; font-size: 12px;
+}
+.file-row:hover { background: #242526; }
+.file-row.active { border-left-color: var(--accent); background: #252526; color: #fff; }
+.file-type-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 20px; width: 20px; color: #c5c5c5; font: 600 9px/1 var(--mono); }
+.file-type-icon.python { color: #75beff; }
+.file-type-icon.javascript { color: #e6c875; }
+.file-type-icon.shell { color: #89d185; }
+.file-type-icon.json { color: #dcb67a; }
+.file-type-icon.html { color: #e69a76; }
+.file-type-icon.css { color: #c6a0f6; }
+.file-type-icon.markdown { color: #9da0a6; }
+.file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#new-file-form { display: grid; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--line); }
+#new-file-name { width: 100%; min-width: 0; padding: 6px 7px; border: 1px solid var(--line-strong); border-radius: 2px; background: #202020; color: var(--ink); font: 12px var(--mono); }
+.new-file-actions { display: flex; gap: 5px; }
+.new-file-actions button { flex: 1; }
+#new-file-error { color: #f48771; font-size: 11px; }
+
+.editor-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--editor); }
+.editor-tabbar {
+  display: flex; align-items: stretch; min-height: 35px; overflow: hidden;
+  background: #181818; border-bottom: 1px solid var(--line);
+}
+.active-tab {
+  display: flex; align-items: center; gap: 8px; min-width: 100px; max-width: min(320px, 60%);
+  padding: 0 12px; border-top: 1px solid var(--accent); border-right: 1px solid var(--line);
+  background: var(--editor); color: #fff; font-size: 12px;
+}
+.active-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#project-save-label { color: var(--muted); font-size: 10px; }
+#project-save-label[data-save=saved] { color: #89d185; }
+#project-save-label[data-save=pending] { color: #e6c875; }
+#project-save-label[data-save=error] { color: #f48771; }
+.editor-tab-spacer { flex: 1; min-width: 0; }
+.editor-toolbar { display: flex; align-items: center; gap: 4px; padding: 0 8px; color: var(--muted); font-size: 11px; }
+.editor-body { display: grid; grid-template-columns: 48px minmax(0, 1fr); flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--editor); }
+#line-numbers {
+  margin: 0; padding: 12px 10px 24px 0; overflow: hidden; border-right: 1px solid #292929;
+  background: var(--editor); color: #858585; text-align: right; white-space: pre; user-select: none;
+  font: 13px/21px var(--mono);
+}
+.editor-surface { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+#code-editor {
+  position: absolute; inset: 0; display: block; width: 100%; height: 100%; min-width: 0; min-height: 0;
+  resize: none; padding: 12px 16px 28px; border: 0; outline: none; background: var(--editor); color: var(--ink);
+  tab-size: 2; white-space: pre; overflow: auto; font: 13px/21px var(--mono);
+}
+.cm-host { position: absolute; inset: 0; display: none; min-width: 0; min-height: 0; overflow: hidden; background: var(--editor); }
+.cm-host .cm-editor { height: 100%; font-size: 13px; color: var(--ink); background: var(--editor); }
+.cm-host .cm-scroller { overflow: auto; font-family: var(--mono); line-height: 21px; }
+.editor-body.cm-ready #line-numbers, .editor-body.cm-ready #code-editor { display: none; }
+.editor-body.cm-ready .cm-host { display: block; }
+.output-panel { display: flex; flex: 0 0 auto; flex-direction: column; height: 188px; max-height: 34vh; min-height: 92px; border-top: 1px solid var(--line-strong); background: var(--panel); }
+.output-heading { display: flex; align-items: center; justify-content: space-between; min-height: 31px; padding: 0 9px 0 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: .07em; }
+.output-heading-label { display: flex; align-items: center; gap: 12px; }
+.output-context { color: var(--faint); font-weight: 400; letter-spacing: 0; }
+.output-close { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 3px; background: transparent; color: var(--muted); font-size: 17px; }
+.output-close:hover { background: #2a2d2e; color: var(--ink); }
+#run-output { flex: 1; min-height: 0; margin: 0; padding: 10px 14px; overflow: auto; background: var(--panel); color: #d4d4d4; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.55 var(--mono); }
+.editor-statusbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 24px; padding: 0 9px;
+  border-top: 1px solid var(--line); background: #181818; color: var(--muted); font-size: 10px;
+}
+.status-left, .status-right { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.status-item { white-space: nowrap; }
+#runtime-status { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; color: var(--muted); }
+#runtime-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #858585; }
+#runtime-status[data-state=ready] { color: #b7d7b5; }
+#runtime-status[data-state=ready]::before { background: #89d185; }
+#runtime-status[data-state=error] { color: #f48771; }
+#runtime-status[data-state=error]::before { background: #f48771; }
+#notice { min-width: 0; max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.linux-runtime { position: fixed; left: -20px; top: 0; width: 4px; height: 4px; overflow: hidden; opacity: .001; pointer-events: none; }
+#linux-frame { width: 4px; height: 4px; border: 0; }
+@media (max-width: 760px) {
+  .topbar { gap: 7px; padding: 0 8px; }
+  .brand-context, .editor-toolbar { display: none; }
+  .workspace { grid-template-columns: 180px minmax(0, 1fr); }
+  .actions { gap: 2px; }
+  .button { padding: 4px 7px; }
+  .editor-statusbar { gap: 5px; padding: 0 6px; }
+  .status-left, .status-right { gap: 7px; }
+  #notice { max-width: 32vw; }
+}
+@media (max-width: 520px) {
+  .workspace { grid-template-columns: 142px minmax(0, 1fr); }
+  .sidebar-heading { padding-left: 10px; }
+  .project-heading { padding-left: 7px; font-size: 10px; }
+  .file-row { gap: 3px; padding-left: 6px; font-size: 11px; }
+  .file-type-icon { flex-basis: 17px; width: 17px; font-size: 8px; }
+  .button.quiet { display: none; }
+  .button.primary { min-width: 56px; }
+  .active-tab { min-width: 0; padding: 0 7px; }
+  .status-left .status-optional { display: none; }
+  #notice { max-width: 28vw; }
+}
 </style>
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><div class="brand-mark" aria-hidden="true">W</div><div><div class="brand-title">WasmBox IDE</div><div class="brand-subtitle">ブラウザ内のLinuxでコードを実行</div></div></div>
+  <a class="brand" href="./index.html" aria-label="WasmBox ターミナルへ戻る">
+    <span class="brand-name">WasmBox</span><span class="brand-separator">/</span><span class="brand-context">IDE</span>
+  </a>
   <div class="actions">
-    <span id="runtime-status" class="status-pill" data-state="booting">Linuxを起動中…</span>
-    <button id="import-project-button" class="button" type="button">読み込み</button>
-    <input id="import-project-input" type="file" accept="application/json,.json" hidden>
-    <button id="export-project-button" class="button" type="button">書き出し</button>
-    <button id="save-button" class="button" type="button" title="Ctrl+Sで保存">保存</button>
-    <button id="run-button" class="button primary" type="button" disabled>▶ 実行</button>
+    <button id="save-button" class="button quiet" type="button" title="Ctrl+S で保存">保存</button>
+    <button id="run-button" class="button primary" type="button" disabled><span class="run-glyph" aria-hidden="true">▶</span>実行</button>
     <button id="stop-button" class="button danger" type="button" hidden>停止</button>
+    <details id="project-menu" class="project-menu">
+      <summary aria-label="プロジェクト操作" title="プロジェクト操作">⋯</summary>
+      <div class="project-menu-panel">
+        <button id="import-project-button" class="menu-item" type="button">JSON を読み込む…</button>
+        <button id="export-project-button" class="menu-item" type="button">JSON を書き出す…</button>
+        <input id="import-project-input" type="file" accept="application/json,.json" hidden>
+      </div>
+    </details>
   </div>
 </header>
 <div class="workspace">
   <aside class="sidebar" aria-label="プロジェクト">
-    <div class="sidebar-heading"><span>エクスプローラー</span><button id="new-file-button" class="icon-button" type="button" aria-label="新しいファイル">＋</button></div>
-    <div class="project-heading">プロジェクト</div>
+    <div class="sidebar-heading"><span>エクスプローラー</span><button id="new-file-button" class="icon-button" type="button" aria-label="新しいファイル" title="新しいファイル">＋</button></div>
+    <div class="project-heading"><span class="project-caret" aria-hidden="true">▾</span><span>WASMBOX</span></div>
     <div id="file-tree" role="list" aria-label="ファイル一覧"></div>
     <form id="new-file-form" hidden>
       <input id="new-file-name" type="text" maxlength="64" autocomplete="off" spellcheck="false" placeholder="main.py" aria-label="新しいファイル名" required>
-      <div class="new-file-actions"><button class="button small primary" type="submit">作成</button><button id="new-file-cancel" class="button small" type="button">取消</button></div>
+      <div class="new-file-actions"><button class="button primary" type="submit">作成</button><button id="new-file-cancel" class="button" type="button">取消</button></div>
       <div id="new-file-error" role="status"></div>
     </form>
-    <div class="sidebar-footer"><div id="file-count">3 files</div><div class="keyboard-hint">Ctrl+S 保存 · Ctrl+Enter 実行</div></div>
   </aside>
   <main class="editor-panel" aria-label="コードエディタ">
-    <div class="editor-tabbar"><div class="active-tab"><span id="active-file-name">main.py</span><span id="project-save-label" data-save="saved" role="status">保存済み</span></div><div class="editor-tools"><span id="language-label" class="keyboard-hint">Python 3</span></div></div>
-    <div class="editor-body" id="editor-body" data-editor-engine="loading"><pre id="line-numbers" aria-hidden="true">1</pre><div class="editor-surface"><textarea id="code-editor" aria-label="ソースコード" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" disabled></textarea><div id="code-editor-cm" class="cm-host" hidden></div></div></div>
-    <div class="editor-statusbar"><div class="editor-status-left"><span>UTF-8</span><span>スペース: 2</span></div><div class="editor-status-right"><span class="keyboard-hint">Ctrl+S 保存</span><span class="keyboard-hint">Ctrl+Enter 実行</span></div></div>
+    <div class="editor-tabbar" role="tablist" aria-label="開いているファイル">
+      <div class="active-tab" role="tab" aria-selected="true">
+        <span id="active-file-icon" class="file-type-icon python" aria-hidden="true">PY</span>
+        <span id="active-file-name" class="active-file">main.py</span>
+        <span id="project-save-label" data-save="saved" role="status" title="自動保存の状態">●</span>
+      </div>
+      <div class="editor-tab-spacer"></div>
+      <div class="editor-toolbar"><span id="language-label">Python 3</span></div>
+    </div>
+    <div class="editor-body" id="editor-body" data-editor-engine="loading">
+      <pre id="line-numbers" aria-hidden="true">1</pre>
+      <div class="editor-surface">
+        <textarea id="code-editor" aria-label="ソースコード" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" disabled></textarea>
+        <div id="code-editor-cm" class="cm-host" hidden></div>
+      </div>
+    </div>
+    <section id="run-output-panel" class="output-panel" aria-label="実行結果" hidden>
+      <div class="output-heading">
+        <div class="output-heading-label"><span>OUTPUT</span><span id="output-file-label" class="output-context">実行結果</span></div>
+        <button id="output-close-button" class="output-close" type="button" aria-label="出力パネルを閉じる" title="閉じる">×</button>
+      </div>
+      <pre id="run-output" aria-live="polite"></pre>
+    </section>
+    <div class="editor-statusbar">
+      <div class="status-left">
+        <span id="runtime-status" class="status-item" data-state="booting">Linux を起動中…</span>
+        <span class="status-item status-optional">UTF-8</span>
+        <span class="status-item status-optional">LF</span>
+        <span class="status-item status-optional">Spaces: 2</span>
+      </div>
+      <div class="status-right">
+        <span id="notice" role="status" aria-live="polite">Linux を起動しています。</span>
+        <span class="status-item status-optional">WasmBox</span>
+      </div>
+    </div>
   </main>
 </div>
-<footer class="bottom-bar"><span>保存先: このブラウザのIndexedDB</span><span id="notice" role="status" aria-live="polite">初回はLinuxの起動に時間がかかります。</span></footer>
 <div class="linux-runtime" aria-hidden="true"><iframe id="linux-frame" src="./index.html?smoke=1" title="WasmBox Linux runtime"></iframe></div>
 <script type="module" src="./ide.js"></script>
 </body>
