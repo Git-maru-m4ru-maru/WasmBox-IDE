@@ -34,17 +34,13 @@ const encoder = new TextEncoder();
 const iframe = document.getElementById("linux-frame") as HTMLIFrameElement;
 const status = document.getElementById("runtime-status") as HTMLElement;
 const notice = document.getElementById("notice") as HTMLElement;
-const outputPanel = document.createElement("section");
-const outputHeading = document.createElement("div");
-const output = document.createElement("pre");
+const outputPanel = document.getElementById("run-output-panel") as HTMLElement;
+const output = document.getElementById("run-output") as HTMLPreElement;
+const outputFileLabel = document.getElementById("output-file-label") as HTMLElement;
 
-outputPanel.hidden = true;
-outputPanel.style.cssText = "position:fixed;z-index:5;left:220px;right:0;bottom:30px;max-height:38vh;display:flex;flex-direction:column;background:#101827;color:#e7edf8;border-top:1px solid #36435c;box-shadow:0 -8px 24px #10182722;";
-outputHeading.textContent = "実行結果";
-outputHeading.style.cssText = "padding:7px 13px;color:#b7c6e0;border-bottom:1px solid #293448;font:11px system-ui,sans-serif;";
-output.style.cssText = "margin:0;min-height:60px;max-height:calc(38vh - 35px);overflow:auto;padding:12px 14px;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,monospace;";
-outputPanel.append(outputHeading, output);
-document.body.append(outputPanel);
+document.getElementById("output-close-button")?.addEventListener("click", () => {
+  outputPanel.hidden = true;
+});
 
 let runtime: WasmBoxHooks | undefined;
 let markerNumber = 0;
@@ -126,6 +122,7 @@ async function runProject(files: readonly ProjectFile[], activeFile: string): Pr
   runtime = await waitForRuntime();
   stopping = false;
   output.textContent = "";
+  outputFileLabel.textContent = activeFile;
   outputPanel.hidden = false;
 
   await sendCommand("stty -echo", 60_000);
