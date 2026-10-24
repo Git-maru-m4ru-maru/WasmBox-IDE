@@ -41,14 +41,14 @@ async function runFile(name, source, expectedOutput) {
   await page.locator("#run-button").click();
 
   await page.waitForFunction(
-    (expected) => document.querySelector("body > section > pre")?.textContent?.includes(expected) === true,
+    (expected) => document.getElementById("run-output")?.textContent?.includes(expected) === true,
     expectedOutput,
     { timeout: RUN_TIMEOUT_MS },
   );
 
   await waitForRunButton(RUN_TIMEOUT_MS);
 
-  const output = (await page.locator("body > section > pre").textContent()) ?? "";
+  const output = (await page.locator("#run-output").textContent()) ?? "";
   assert.ok(output.includes(expectedOutput), `Expected output was missing for ${name}`);
   runResults.push({ file: name, expectedOutput });
 }
@@ -121,7 +121,7 @@ try {
     activeFile: await page.locator("#active-file-name").textContent().catch(() => "(unavailable)"),
     textareaValue: await page.locator("#code-editor").inputValue().catch(() => "(unavailable)"),
     codeMirrorText: await page.locator("#code-editor-cm .cm-content").innerText().catch(() => "(unavailable)"),
-    output: await page.locator("body > section > pre").textContent().catch(() => "(unavailable)"),
+    output: await page.locator("#run-output").textContent().catch(() => "(unavailable)"),
     pageErrors,
     runResults,
   };
