@@ -79,6 +79,18 @@ try {
   await runFile("main.py", 'print("IDE_PYTHON_OK")\n', "IDE_PYTHON_OK");
   await runFile("main.js", 'console.log("IDE_NODE_OK")\n', "IDE_NODE_OK");
 
+  const openTabs = page.locator("#open-tabs .editor-tab");
+  assert.ok(await openTabs.count() >= 2, "Opening files should create editor tabs");
+  await page.locator("#open-tabs .editor-tab-main").filter({ hasText: "main.py" }).click();
+  assert.equal((await page.locator("#active-file-name").textContent())?.trim(), "main.py");
+
+  const mainJsTab = page.locator("#open-tabs .editor-tab").filter({ hasText: "main.js" });
+  await mainJsTab.locator(".editor-tab-close").click();
+  assert.equal(await openTabs.count(), 1, "Closing a tab should leave the file in the project");
+  assert.equal(await fileButton("main.js").count(), 1, "Closing a tab must not delete the file");
+  await fileButton("main.js").click();
+  assert.equal(await openTabs.count(), 2, "Selecting a file should reopen its tab");
+
   await page.locator("#new-file-button").click();
   await page.locator("#new-file-name").fill("smoke.sh");
   await page.locator("#new-file-form button[type=submit]").click();
