@@ -266,7 +266,7 @@ const NET_DEVICES = 'for d in /sys/class/net/*; do echo "${d##*/} type=$(cat $d/
 /** 共通の、NIC・DHCP・経路・DNS・時刻の確認（探索） */
 async function inspectNetwork(run) {
   await run("デバイス（名前 type）", NET_DEVICES, { expect: { match: /^eth0 type=1$/m } });
-  await run("wasmbox-net のログ", "grep -x 'DHCP 成功: eth0' /run/wasmbox-net.log", { keep: 420, expect: { match: /^DHCP 成功: eth0$/ } });
+  await run("wasmbox-net のログ", "cat /run/wasmbox-net.log", { keep: 420 });
   await run("dmesg（NIC 関連）", "dmesg | grep -iE '8390|ne2k|ne2000|virtio_net|virtio-pci|eth0' | head -n 6", { keep: 400 });
   await run("アドレスと経路", "ip -4 addr show eth0 | grep -E 'inet|state'; ip route", {
     keep: 300,

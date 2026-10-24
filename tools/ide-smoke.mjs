@@ -41,14 +41,14 @@ async function runFile(name, source, expectedOutput) {
   await page.locator("#run-button").click();
 
   await page.waitForFunction(
-    (expected) => document.querySelector("body > section > pre")?.textContent?.includes(expected) === true,
+    (expected) => document.getElementById("run-output")?.textContent?.includes(expected) === true,
     expectedOutput,
     { timeout: RUN_TIMEOUT_MS },
   );
 
   await waitForRunButton(RUN_TIMEOUT_MS);
 
-  const output = (await page.locator("body > section > pre").textContent()) ?? "";
+  const output = (await page.locator("#run-output").textContent()) ?? "";
   assert.ok(output.includes(expectedOutput), `Expected output was missing for ${name}`);
   runResults.push({ file: name, expectedOutput });
 }
@@ -78,6 +78,18 @@ try {
 
   await runFile("main.py", 'print("IDE_PYTHON_OK")\n', "IDE_PYTHON_OK");
   await runFile("main.js", 'console.log("IDE_NODE_OK")\n', "IDE_NODE_OK");
+
+  const openTabs = page.locator("#open-tabs .editor-tab");
+  assert.ok(await openTabs.count() >= 2, "Opening files should create editor tabs");
+  await page.locator("#open-tabs .editor-tab-main").filter({ hasText: "main.py" }).click();
+  assert.equal((await page.locator("#active-file-name").textContent())?.trim(), "main.py");
+
+  const mainJsTab = page.locator("#open-tabs .editor-tab").filter({ hasText: "main.js" });
+  await mainJsTab.locator(".editor-tab-close").click();
+  assert.equal(await openTabs.count(), 1, "Closing a tab should leave the file in the project");
+  assert.equal(await fileButton("main.js").count(), 1, "Closing a tab must not delete the file");
+  await fileButton("main.js").click();
+  assert.equal(await openTabs.count(), 2, "Selecting a file should reopen its tab");
 
   await page.locator("#new-file-button").click();
   await page.locator("#new-file-name").fill("smoke.sh");
@@ -121,7 +133,7 @@ try {
     activeFile: await page.locator("#active-file-name").textContent().catch(() => "(unavailable)"),
     textareaValue: await page.locator("#code-editor").inputValue().catch(() => "(unavailable)"),
     codeMirrorText: await page.locator("#code-editor-cm .cm-content").innerText().catch(() => "(unavailable)"),
-    output: await page.locator("body > section > pre").textContent().catch(() => "(unavailable)"),
+    output: await page.locator("#run-output").textContent().catch(() => "(unavailable)"),
     pageErrors,
     runResults,
   };
