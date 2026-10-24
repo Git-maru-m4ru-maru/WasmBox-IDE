@@ -99,6 +99,7 @@ export class BrowserIDE {
   #codeMirrorState: CodeMirrorStateModule | undefined;
   #codeMirrorLanguages: CodeMirrorLanguages | undefined;
   #codeMirrorSyntaxHighlighting: unknown;
+  #openFiles: string[] = [];
   #syncingCodeMirror = false;
 
   constructor(options: BrowserIDEOptions) {
@@ -113,6 +114,7 @@ export class BrowserIDE {
       console.error(error);
     }
 
+    this.#openFiles = [this.#state.activeFile];
     this.#wireControls();
     this.#renderFiles();
     this.#renderEditor();
@@ -217,6 +219,7 @@ export class BrowserIDE {
       button.addEventListener("click", () => {
         this.#syncModelFromCodeMirror();
         this.#state.activeFile = file.name;
+        if (!this.#openFiles.includes(file.name)) this.#openFiles.push(file.name);
         this.#renderFiles();
         this.#renderEditor();
         this.#scheduleSave();
@@ -252,15 +255,86 @@ export class BrowserIDE {
     return labels[type] ?? "TX";
   }
 
+  #renderTabs(): void {
+    const container = this.#element<HTMLElement>("open-tabs");
+    container.replaceChildren();
+
+    for (const name of this.#openFiles) {
+      const file = this.#state.files.find((entry) => entry.name === name);
+      if (!file) continue;
+
+      const active = file.name === this.#state.activeFile;
+      const tab = document.createElement("div");
+      tab.className = "editor-tab" + (active ? " active" : "");
+
+      const openButton = document.createElement("button");
+      openButton.type = "button";
+      openButton.className = "editor-tab-main";
+      openButton.setAttribute("role", "tab");
+      openButton.setAttribute("aria-selected", active ? "true" : "false");
+      openButton.title = file.name;
+
+      const icon = document.createElement("span");
+      icon.className = "file-type-icon " + this.#fileIconClass(file.name);
+      icon.textContent = this.#fileIconLabel(file.name);
+      icon.setAttribute("aria-hidden", "true");
+
+      const fileName = document.createElement("span");
+      fileName.className = "editor-tab-name";
+      fileName.textContent = file.name;
+      if (active) fileName.id = "active-file-name";
+
+      openButton.append(icon, fileName);
+      openButton.addEventListener("click", () => {
+        if (this.#state.activeFile === file.name) return;
+        this.#syncModelFromCodeMirror();
+        this.#state.activeFile = file.name;
+        this.#renderFiles();
+        this.#renderEditor();
+        this.#scheduleSave();
+      });
+
+      const closeButton = document.createElement("button");
+      closeButton.type = "button";
+      closeButton.className = "editor-tab-close";
+      closeButton.textContent = "×";
+      closeButton.title = `閉じる ${file.name}`;
+      closeButton.setAttribute("aria-label", `${file.name} のタブを閉じる`);
+      closeButton.addEventListener("click", () => this.#closeTab(file.name));
+
+      tab.append(openButton, closeButton);
+      container.append(tab);
+    }
+  }
+
+  #closeTab(name: string): void {
+    if (this.#openFiles.length <= 1) {
+      this.#options.onNotify("最後のタブは閉じられません。");
+      return;
+    }
+
+    this.#syncModelFromCodeMirror();
+    const index = this.#openFiles.indexOf(name);
+    if (index < 0) return;
+    this.#openFiles.splice(index, 1);
+
+    if (this.#state.activeFile === name) {
+      this.#state.activeFile = this.#openFiles[Math.max(0, index - 1)] ?? this.#openFiles[0];
+      this.#renderFiles();
+      this.#renderEditor();
+      this.#scheduleSave();
+      return;
+    }
+
+    this.#renderTabs();
+  }
+
   #renderEditor(): void {
+    this.#renderTabs();
     const file = this.#activeFile();
     const editor = this.#element<HTMLTextAreaElement>("code-editor");
     editor.value = file?.content ?? "";
     editor.disabled = !file;
-    this.#element<HTMLElement>("active-file-name").textContent = file?.name ?? "ファイルなし";
-    const fileIcon = this.#element<HTMLElement>("active-file-icon");
-    fileIcon.className = "file-type-icon " + this.#fileIconClass(file?.name ?? "");
-    fileIcon.textContent = file ? this.#fileIconLabel(file.name) : "TX";
     this.#element<HTMLElement>("language-label").textContent = file ? this.#languageLabel(file.name) : "プレーンテキスト";
     this.#element<HTMLButtonElement>("run-button").title = file && runtimeForFile(file.name)
       ? "Ctrl+Enter で実行"
@@ -486,6 +560,7 @@ export class BrowserIDE {
     this.#syncModelFromCodeMirror();
     this.#state.files.push({ name, content: "" });
     this.#state.activeFile = name;
+    this.#openFiles.push(name);
     this.#closeNewFileForm();
     this.#renderFiles();
     this.#renderEditor();
@@ -631,6 +706,7 @@ export class BrowserIDE {
       if (state.files.length > MAX_FILES) throw new Error(`ファイルは${MAX_FILES}個までです。`);
 
       this.#state = structuredClone(state);
+      this.#openFiles = [this.#state.activeFile];
       this.#renderFiles();
       this.#renderEditor();
       this.#scheduleSave();
