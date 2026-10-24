@@ -319,7 +319,9 @@ export class BrowserIDE {
     this.#openFiles.splice(index, 1);
 
     if (this.#state.activeFile === name) {
-      this.#state.activeFile = this.#openFiles[Math.max(0, index - 1)] ?? this.#openFiles[0];
+      const nextFile = this.#openFiles[Math.max(0, index - 1)] ?? this.#openFiles[0];
+      if (!nextFile) throw new Error("開いているファイルがありません。");
+      this.#state.activeFile = nextFile;
       this.#renderFiles();
       this.#renderEditor();
       this.#scheduleSave();
