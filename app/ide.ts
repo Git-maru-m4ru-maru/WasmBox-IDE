@@ -38,7 +38,7 @@ interface CodeMirrorCore {
     updateListener: {
       of(listener: (update: CodeMirrorUpdate) => void): unknown;
     };
-    theme(spec: Record<string, unknown>): unknown;
+    theme(spec: Record<string, unknown>, options?: { dark?: boolean }): unknown;
   };
 }
 
@@ -55,6 +55,29 @@ interface CodeMirrorLanguages {
   css: () => unknown;
   json: () => unknown;
   markdown: () => unknown;
+}
+
+interface CodeMirrorLanguageModule {
+  HighlightStyle: {
+    define(styles: Array<{ tag: unknown; color: string; fontStyle?: string }>): unknown;
+  };
+  syntaxHighlighting(style: unknown): unknown;
+}
+
+interface CodeMirrorHighlightTags {
+  keyword: unknown;
+  operator: unknown;
+  comment: unknown;
+  string: unknown;
+  number: unknown;
+  bool: unknown;
+  null: unknown;
+  variableName: unknown;
+  typeName: unknown;
+  className: unknown;
+  propertyName: unknown;
+  function(tag: unknown): unknown;
+  definition(tag: unknown): unknown;
 }
 
 export interface BrowserIDEOptions {
@@ -75,6 +98,7 @@ export class BrowserIDE {
   #codeMirrorCore: CodeMirrorCore | undefined;
   #codeMirrorState: CodeMirrorStateModule | undefined;
   #codeMirrorLanguages: CodeMirrorLanguages | undefined;
+  #codeMirrorSyntaxHighlighting: unknown;
   #syncingCodeMirror = false;
 
   constructor(options: BrowserIDEOptions) {
@@ -150,8 +174,15 @@ export class BrowserIDE {
     this.#element<HTMLButtonElement>("save-button").addEventListener("click", () => void this.saveNow());
     this.#element<HTMLButtonElement>("run-button").addEventListener("click", () => void this.runSelected());
     this.#element<HTMLButtonElement>("stop-button").addEventListener("click", () => this.#options.onStop());
-    this.#element<HTMLButtonElement>("export-project-button").addEventListener("click", () => this.#exportProject());
-    this.#element<HTMLButtonElement>("import-project-button").addEventListener("click", () => this.#element<HTMLInputElement>("import-project-input").click());
+    const projectMenu = this.#element<HTMLDetailsElement>("project-menu");
+    this.#element<HTMLButtonElement>("export-project-button").addEventListener("click", () => {
+      projectMenu.open = false;
+      this.#exportProject();
+    });
+    this.#element<HTMLButtonElement>("import-project-button").addEventListener("click", () => {
+      projectMenu.open = false;
+      this.#element<HTMLInputElement>("import-project-input").click();
+    });
     this.#element<HTMLInputElement>("import-project-input").addEventListener("change", (event) => {
       const input = event.currentTarget as HTMLInputElement;
       const file = input.files?.[0];
@@ -193,7 +224,6 @@ export class BrowserIDE {
       tree.append(button);
     }
 
-    this.#element<HTMLElement>("file-count").textContent = `${this.#state.files.length} files`;
   }
 
   #fileIconClass(name: string): string {
@@ -228,6 +258,9 @@ export class BrowserIDE {
     editor.value = file?.content ?? "";
     editor.disabled = !file;
     this.#element<HTMLElement>("active-file-name").textContent = file?.name ?? "ファイルなし";
+    const fileIcon = this.#element<HTMLElement>("active-file-icon");
+    fileIcon.className = "file-type-icon " + this.#fileIconClass(file?.name ?? "");
+    fileIcon.textContent = file ? this.#fileIconLabel(file.name) : "TX";
     this.#element<HTMLElement>("language-label").textContent = file ? this.#languageLabel(file.name) : "プレーンテキスト";
     this.#element<HTMLButtonElement>("run-button").title = file && runtimeForFile(file.name)
       ? "Ctrl+Enter で実行"
@@ -285,17 +318,24 @@ export class BrowserIDE {
 
     const extensions = [
       core.basicSetup,
+      this.#codeMirrorSyntaxHighlighting,
       this.#languageExtension(name),
       core.EditorView.updateListener.of((update) => {
         if (!update.docChanged || this.#syncingCodeMirror) return;
         this.#syncModelFromCodeMirror();
       }),
       core.EditorView.theme({
-        "&": { height: "100%", fontSize: "12px" },
+        "&": { height: "100%", fontSize: "13px", color: "var(--ink)", backgroundColor: "var(--editor)" },
         ".cm-scroller": { fontFamily: "var(--mono)", lineHeight: "21px" },
-        ".cm-content": { padding: "15px 18px 28px" },
-        ".cm-gutters": { borderRight: "1px solid #edf0f6", background: "#fbfcff", color: "#9aa5b7" },
-      }),
+        ".cm-content": { padding: "12px 16px 28px", caretColor: "var(--ink)" },
+        ".cm-gutters": { borderRight: "1px solid #292929", backgroundColor: "var(--editor)", color: "#858585" },
+        ".cm-activeLineGutter": { backgroundColor: "#252526" },
+        ".cm-activeLine": { backgroundColor: "#242526" },
+        ".cm-selectionBackground": { backgroundColor: "#264f78 !important" },
+        ".cm-focused .cm-selectionBackground": { backgroundColor: "#264f78 !important" },
+        ".cm-cursor, .cm-dropCursor": { borderLeftColor: "#aeafad" },
+        ".cm-matchingBracket": { backgroundColor: "#3a3d41", outline: "1px solid #6c6f73" },
+      }, { dark: true }),
     ];
 
     this.#codeMirrorView = new core.EditorView({
@@ -348,12 +388,30 @@ export class BrowserIDE {
       "https://esm.sh/@codemirror/lang-css@6.3.1?bundle=false&deps=@codemirror/view@6.38.6",
       "https://esm.sh/@codemirror/lang-json@6.0.2?bundle=false&deps=@codemirror/view@6.38.6",
       "https://esm.sh/@codemirror/lang-markdown@6.3.2?bundle=false&deps=@codemirror/view@6.38.6",
+      "https://esm.sh/@codemirror/language@6.11.0?bundle=false&deps=@codemirror/view@6.38.6",
+      "https://esm.sh/@lezer/highlight@1.2.1",
     ];
 
     try {
       const modules = await Promise.all(urls.map((url) => import(url)));
       const core = modules[0] as unknown as CodeMirrorCore;
       const state = modules[1] as unknown as CodeMirrorStateModule;
+      const language = modules[8] as unknown as CodeMirrorLanguageModule;
+      const tags = (modules[9] as unknown as { tags: CodeMirrorHighlightTags }).tags;
+      this.#codeMirrorSyntaxHighlighting = language.syntaxHighlighting(language.HighlightStyle.define([
+        { tag: tags.keyword, color: "#c586c0" },
+        { tag: tags.operator, color: "#d4d4d4" },
+        { tag: tags.comment, color: "#6a9955", fontStyle: "italic" },
+        { tag: tags.string, color: "#ce9178" },
+        { tag: tags.number, color: "#b5cea8" },
+        { tag: tags.bool, color: "#569cd6" },
+        { tag: tags.null, color: "#569cd6" },
+        { tag: tags.function(tags.variableName), color: "#dcdcaa" },
+        { tag: tags.definition(tags.variableName), color: "#9cdcfe" },
+        { tag: tags.typeName, color: "#4ec9b0" },
+        { tag: tags.className, color: "#4ec9b0" },
+        { tag: tags.propertyName, color: "#9cdcfe" },
+      ]));
 
       this.#codeMirrorLanguages = {
         python: (modules[2] as unknown as { python: () => unknown }).python,
@@ -482,7 +540,9 @@ export class BrowserIDE {
 
   #setProjectSaveLabel(label: string, state: "saved" | "pending" | "error"): void {
     const element = this.#element<HTMLElement>("project-save-label");
-    element.textContent = label;
+    element.textContent = state === "error" ? "!" : "●";
+    element.title = label;
+    element.setAttribute("aria-label", label);
     element.dataset["save"] = state;
   }
 
